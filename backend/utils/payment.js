@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const RPC_URL = process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com';
-const PLATFORM_FEE_PERCENTAGE = parseFloat(process.env.PLATFORM_FEE_PERCENTAGE || '4');
+const PLATFORM_FEE_PERCENTAGE = parseFloat(process.env.PLATFORM_FEE_PERCENTAGE || '0');
 
 const connection = new Connection(RPC_URL, 'confirmed');
 
@@ -126,4 +126,3 @@ export function calculateAmounts(totalAmount) {
     platformFeePercentage: PLATFORM_FEE_PERCENTAGE,
   };
 }
-

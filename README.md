@@ -1,29 +1,36 @@
-# Auton - Decentralized Tipping Miniapp
+# Auton - Solana x402 Pay-to-Access Drops
 
-Auton is a lightweight, decentralized tipping miniapp built on Solana Devnet using the x402 payment protocol. The app enables instant micropayments for content creators, service providers, or community members without requiring accounts, subscriptions, or complex authentication flows.
+Auton started as a lightweight tipping miniapp and now ships a Patreon-style, pay-to-access experience on Solana Devnet using the x402 protocol. Creators encrypt any file (video, audio, PDF, zip, text) client-side, choose whether to surface a spoiler, and fans unlock the full drop via a one-time Solana payment. Funds stream straight to the creator’s wallet—no custody, no platform middlemen, and purchases are final on-chain.
 
 ## 🚀 Features
 
-- **Instant Tipping**: Send tips directly to creators using Solana blockchain
-- **x402 Protocol**: Leverages HTTP 402 "Payment Required" status code for seamless payment flows
-- **No Registration Required**: Users only need a Solana wallet (Phantom, Solflare, etc.)
-- **Fast Settlements**: Transactions settle in under 400ms on Solana Devnet
-- **Transparent Fees**: 4% platform fee with real-time breakdown
-- **Multi-Token Support**: Support for SOL and USDC payments
-- **Creator Dashboard**: Track tips and earnings in real-time
-- **Embeddable Widget**: Easy-to-integrate tip button for any website
+- **Encrypted paywall drops**: Upload any file, encrypt with AES-256-GCM, and store on S3 (or local dev storage) before sharing a pay-to-access link.
+- **Preview control**: Give fans nothing, a short teaser, or a custom preview file. Creators choose “auto snippet”, “custom text”, or “demo upload”.
+- **Instant wallet payouts**: Solana Pay flows send funds directly to each creator. Auton never holds custody and surfaces an explicit “no refunds” disclaimer.
+- **x402-first server**: `/content/:id/paywall` responds with HTTP `402 Payment Required`, Solana Pay headers, and unique payment IDs + references.
+- **Short-lived access tokens**: After on-chain verification, users receive a JWT-style token and signed asset URL that expires within minutes.
+- **Wallet Adapter UX**: Phantom + Solflare via `@solana/wallet-adapter` power both creator onboarding and buyer checkout, including direct extension checks on desktop.
+- **Legacy tipping mode**: Original `/tip/:creatorId` endpoints still exist for simple gratuities or backwards compatibility.
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐         ┌─────────────────┐         ┌─────────────────┐
-│   Frontend      │         │    Backend      │         │   Solana         │
-│   (Next.js)     │────────▶│   (Express)     │────────▶│   Devnet         │
-│                 │         │                 │         │                  │
-│ - Creator Page  │         │ - x402 Server   │         │ - Transactions   │
-│ - Tipping Page  │         │ - Payment Verify│         │ - Wallet         │
-│ - Wallet Adapter│         │ - Tip History   │         │                  │
-└─────────────────┘         └─────────────────┘         └─────────────────┘
+┌─────────────────────┐    encrypt/upload     ┌──────────────────────────────┐
+│ Next.js Frontend    │──────────────────────▶│ Express x402 API             │
+│                     │                       │                              │
+│ • Creator workspace │◀── gated asset token ─┤ • /content CRUD + previews   │
+│ • Content paywall   │                       │ • 402 paywall + verification │
+│ • Wallet Adapter UI │                       │ • AES key custody + JWT      │
+└─────────┬───────────┘                       └────────────┬─────────────────┘
+          │                                                │
+request tx│                                                │verify tx
+          ▼                                                ▼
+┌──────────────────────┐                          ┌─────────────────────────┐
+│  Solana wallets      │                          │  Storage (S3 or local)  │
+│  (Phantom/Solflare)  │                          │  • Encrypted blobs      │
+│  • Signs payments    │                          │  • Optional preview     │
+│  • Receives access   │                          │                         │
+└──────────────────────┘                          └─────────────────────────┘
 ```
 
 ## 📋 Prerequisites
@@ -57,6 +64,23 @@ This will create a `.env` file with your platform wallet address. You'll need to
 - Visit https://faucet.solana.com/
 - Enter your platform wallet address
 - Request Devnet SOL
+
+Create/extend `backend/.env` with the new paywall parameters:
+
+```
+ACCESS_TOKEN_SECRET=replace-me
+PUBLIC_API_BASE=http://localhost:3001
+PAYMENT_TTL_MINUTES=10
+ACCESS_TOKEN_TTL_SECONDS=300
+PLATFORM_FEE_PERCENTAGE=0
+# Optional S3 upload path
+# S3_BUCKET=your-bucket
+# S3_REGION=us-east-1
+# AWS_ACCESS_KEY_ID=...
+# AWS_SECRET_ACCESS_KEY=...
+```
+
+If S3 variables are omitted (or `USE_LOCAL_STORAGE=true`), the server writes encrypted blobs to `backend/uploads/` (gitignored) so you can demo everything locally.
 
 ### 3. Frontend Setup
 
@@ -94,23 +118,47 @@ The frontend will run on `http://localhost:3000`
 
 ### For Creators
 
-1. Open the app at `http://localhost:3000`
-2. Connect your Solana wallet
-3. Your creator ID will be auto-generated from your wallet address
-4. Copy your tipping link or QR code
-5. Share the link with your audience
+1. Run both servers and visit `http://localhost:3000`.
+2. Connect Phantom/Solflare (or manually paste a payout address). A creator ID is derived from your wallet prefix.
+3. Fill out the new “Encrypt & publish” form:
+   - Upload any file to gate.
+   - Pick a preview strategy: auto text snippet, custom teaser text, teaser file, or fully gated.
+   - Set price (SOL for MVP), categories, and whether to allow downloads after unlock.
+4. Submit. The backend encrypts the payload, stores it, and returns a sharable link: `/content/<contentId>`.
+5. Manage all drops from the dashboard—preview snippet, price badge, stream/download toggle.
 
-### For Tippers
+### For Buyers
 
-1. Click on a creator's tipping link
-2. Connect your Solana wallet
-3. Select the amount you want to tip
-4. Confirm the transaction
-5. Payment is verified and settled instantly
+1. Open a creator’s share link (`/content/<contentId>`).
+2. Review the spoiler/preview and the mandatory “no refunds” disclaimer.
+3. Connect a wallet, click “Get payment request” to receive the HTTP 402 payload, then approve the SOL transfer.
+4. After on-chain confirmation, the app returns a short-lived download URL (backed by an HMAC access token). Click “Open download” to decrypt and fetch the file.
+
+### Legacy Tipping
+
+The original `/tip/:creatorId` and dashboard remain available in case you still want lightweight tipping links beside the premium paywall.
 
 ## 🔌 API Endpoints
 
-### GET `/tip/:creatorId`
+### Pay-to-Access Endpoints
+
+| Method & Path | Description |
+| --- | --- |
+| `POST /content` | Accepts encrypted upload metadata (base64 payload), preview preferences, price, categories, etc. Stores AES-256-GCM ciphertext + preview artifacts. |
+| `GET /content` | Lists every published drop (optionally filtered by `?creatorId=`). |
+| `GET /content/:id` | Returns metadata + preview details without exposing encryption keys. |
+| `GET /content/:id/paywall?buyerPubkey=...` | Responds with HTTP 402, Solana Pay headers, and a short-lived payment intent tied to the buyer. |
+| `POST /content/:id/paywall` | Accepts `{ paymentId, signature, buyerPubkey }`, verifies the on-chain transfer, records an access grant, and returns `{ accessToken, downloadUrl }`. |
+| `GET /content/:id/asset?token=...` | Validates the signed token, decrypts the ciphertext, and streams the original file (respecting download/stream settings). |
+| `GET /content/:id/preview-asset` | If a creator uploaded a custom teaser file, this endpoint streams it in the clear. |
+
+All paywall responses include the non-refundable disclaimer so wallets and frontends can surface it before payment.
+
+### Legacy Tipping Endpoints
+
+The previous tipping API is untouched and still works side-by-side with the new paywall:
+
+#### GET `/tip/:creatorId`
 
 Returns a `402 Payment Required` response with payment parameters.
 
@@ -205,14 +253,20 @@ See `frontend/public/widget-example.html` for more examples.
 
 ## 🧪 Testing
 
-1. Generate a platform wallet and fund it with Devnet SOL
-2. Start both backend and frontend servers
-3. Connect a wallet in the frontend
-4. Generate a tipping link
-5. Open the link in a new tab/incognito window
-6. Connect a different wallet
-7. Send a test tip
-8. Verify the transaction on Solana Explorer
+### Pay-to-Access Flow
+
+1. Start backend (`npm run dev` in `/backend`) and frontend (`npm run dev` in `/frontend`).
+2. Connect Wallet A on the homepage, upload a small text file, and publish it (preview auto or custom).
+3. Copy the generated link `/content/<id>` and open it in an incognito window with Wallet B.
+4. Request the payment instructions, inspect the HTTP 402 headers in DevTools if needed.
+5. Approve the SOL transfer, wait for confirmation, and click “Open download” to verify the decrypted file contents.
+6. Check the backend logs (or `backend/db.json`) to confirm the payment intent + access grant records.
+
+### Legacy Tipping Flow
+
+1. Connect a creator wallet and grab the `/tip/<creatorId>` link.
+2. Open it with a second wallet, choose an amount, and submit the transaction.
+3. Confirm the tip shows up in the historical list as before.
 
 ## 📦 Deployment
 
@@ -251,10 +305,17 @@ See `frontend/public/widget-example.html` for more examples.
 auton/
 ├── backend/
 │   ├── routes/
-│   │   ├── tip.js          # x402 tipping endpoint
-│   │   └── tips.js          # Tip history endpoint
+│   │   ├── tip.js             # Legacy tipping endpoint
+│   │   ├── tips.js            # Tip history endpoint
+│   │   └── content.js         # Encrypted content + paywall routes
 │   ├── utils/
-│   │   └── payment.js       # Payment verification logic
+│   │   ├── accessToken.js    # Short-lived download tokens
+│   │   ├── encryption.js     # AES helpers
+│   │   └── payment.js        # Payment verification logic
+│   ├── storage/
+│   │   ├── localStorage.js   # Dev-friendly filesystem storage
+│   │   ├── s3Storage.js      # Optional AWS S3 adapter
+│   │   └── storageProvider.js
 │   ├── scripts/
 │   │   └── generate-wallet.js  # Wallet generation script
 │   ├── database.js          # Simple JSON database
@@ -262,10 +323,11 @@ auton/
 │   └── server.js            # Express server
 ├── frontend/
 │   ├── app/
-│   │   ├── page.tsx         # Creator dashboard
-│   │   ├── tip/
-│   │   │   └── [creatorId]/
-│   │   │       └── page.tsx  # Tipping page
+│   │   ├── page.tsx         # Creator workspace (upload + catalog)
+│   │   ├── content/
+│   │   │   └── [contentId]/ # Paywall + unlock flow
+│   │   └── tip/
+│   │       └── [creatorId]/ # Legacy tipping page
 │   │   └── layout.tsx       # Root layout with wallet provider
 │   ├── components/
 │   │   └── WalletContextProvider.tsx
