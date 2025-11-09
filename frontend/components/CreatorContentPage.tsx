@@ -255,15 +255,14 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
               {decryptedCids.has(item.id.toNumber()) ? (
                 <div className="space-y-2">
                   <p className="text-green-600 dark:text-green-400 font-medium">Access Granted!</p>
-                  <p className="text-sm text-gray-700 dark:text-gray-200 break-all">
-                    IPFS CID: <a href={`${IPFS_GATEWAY_URL}${decryptedCids.get(item.id.toNumber())}`} target="_blank" rel="noopener noreferrer" className="underline text-blue-500">{decryptedCids.get(item.id.toNumber())}</a>
-                  </p>
-                  <button
-                    onClick={() => window.open(`${IPFS_GATEWAY_URL}${decryptedCids.get(item.id.toNumber())}`, '_blank')}
-                    className="w-full rounded-lg bg-blue-600 py-2 text-white font-semibold hover:bg-blue-700"
-                  >
-                    View Content
-                  </button>
+                  <div className="mt-2 p-4 border border-gray-200 dark:border-gray-700 rounded-lg bg-gray-50 dark:bg-gray-900">
+                    <h4 className="text-md font-semibold text-gray-800 dark:text-gray-100 mb-2">Content Preview:</h4>
+                    <img
+                      src={`${IPFS_GATEWAY_URL}${decryptedCids.get(item.id.toNumber())}`}
+                      alt={`Content ${item.id.toNumber()}`}
+                      className="w-full h-auto rounded-md"
+                    />
+                  </div>
                 </div>
               ) : (
                 <button
