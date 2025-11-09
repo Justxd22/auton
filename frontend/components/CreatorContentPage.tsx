@@ -291,6 +291,25 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
           <WalletMultiButton className="!bg-purple-600 hover:!bg-purple-700" />
         </div>
 
+        <div className="space-y-6 max-w-2xl mx-auto my-8">
+            <div className="space-y-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-5 text-sm text-amber-900 dark:text-amber-200">
+                <p className="font-semibold">No-refund policy</p>
+                <p className="leading-relaxed">
+                    Blockchain payments are final. Double-check previews before unlocking.
+                </p>
+            </div>
+
+            <div className="rounded-lg border border-[#E0E0E0] dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 p-6 space-y-4">
+                <p className="font-semibold text-gray-900 dark:text-gray-100">Unlock steps</p>
+                <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600 dark:text-gray-300 leading-relaxed">
+                  <li>Connect your Solana wallet (e.g., Phantom).</li>
+                  <li>Click the "Unlock" button on the content you wish to purchase.</li>
+                  <li>Approve the transaction in your wallet.</li>
+                  <li>The content will appear in the card once the transaction is confirmed.</li>
+                </ol>
+            </div>
+        </div>
+
         {success && (
           <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700 space-y-2 mb-4">
             <p>{success}</p>
@@ -309,9 +328,19 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
               className="bg-white dark:bg-gray-800 rounded-xl shadow-lg p-6 space-y-4"
             >
               <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{item.title}</h2>
-              <p className="text-gray-600 dark:text-gray-300">
-                Price: {item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL} SOL
-              </p>
+              <div className="flex flex-wrap items-center gap-4 pb-4 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold text-gray-900 dark:text-gray-100">{item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL}</span>
+                  <span className="text-lg font-semibold text-gray-600 dark:text-gray-400">SOL</span>
+                </div>
+                <div className="text-sm text-gray-500 dark:text-gray-400">
+                  Paid directly to{' '}
+                  <span className="font-mono text-gray-700 dark:text-gray-300">
+                    {creatorAccount.creatorWallet.toBase58().slice(0, 4)}...
+                    {creatorAccount.creatorWallet.toBase58().slice(-4)}
+                  </span>
+                </div>
+              </div>
 
               {decryptedCids.has(item.id.toNumber()) ? (
                 renderUnlockedContent(item)
