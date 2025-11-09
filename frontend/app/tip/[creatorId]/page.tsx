@@ -6,7 +6,7 @@ import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { Connection, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { useRouter } from 'next/navigation';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = '/api';
 const SOLANA_RPC_URL = 'https://api.devnet.solana.com';
 
 interface PaymentRequest {

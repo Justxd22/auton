@@ -12,7 +12,7 @@ import {
   Transaction,
 } from '@solana/web3.js';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+const API_BASE_URL = '/api';
 const SOLANA_RPC_URL = 'https://api.devnet.solana.com';
 
 type PreviewInfo = {
