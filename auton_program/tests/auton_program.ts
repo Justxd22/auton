@@ -212,12 +212,22 @@ describe("auton_program", () => {
       const nonExistentContentId = new anchor.BN(99);
       const creatorPDA = getCreatorPDA(creator1.publicKey);
 
+      // We must derive the correct PDA, even for a failing transaction,
+      // so that the instruction's account validation passes.
+      const [receiptPDA, _] = web3.PublicKey.findProgramAddressSync(
+        [
+          Buffer.from("access"),
+          buyer.publicKey.toBuffer(),
+          nonExistentContentId.toArrayLike(Buffer, "le", 8),
+        ],
+        program.programId
+      );
+
       try {
         await program.methods
           .processPayment(nonExistentContentId)
           .accounts({
-            // PDA derivation doesn't matter as much as it will fail before creation
-            paidAccessAccount: web3.Keypair.generate().publicKey, 
+            paidAccessAccount: receiptPDA,
             creatorAccount: creatorPDA,
             creatorWallet: creator1.publicKey,
             buyer: buyer.publicKey,
@@ -225,9 +235,13 @@ describe("auton_program", () => {
           })
           .signers([buyer])
           .rpc();
-        assert.fail("Transaction should have failed");
+        assert.fail("Transaction should have failed with ContentNotFound");
       } catch (err) {
-        assert.include(err.message, "The specified content was not found in the creator's account.");
+        // Check that the error is the specific custom error we expect.
+        assert.isTrue(err instanceof anchor.AnchorError);
+        const anchorError = err as anchor.AnchorError;
+        assert.equal(anchorError.error.errorCode.code, "ContentNotFound");
+        assert.include(anchorError.error.errorMessage, "The specified content was not found in the creator's account.");
       }
     });
   });
