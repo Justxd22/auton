@@ -15,6 +15,7 @@ pub mod auton_program {
         let creator_account = &mut ctx.accounts.creator_account;
         creator_account.creator_wallet = *ctx.accounts.creator.key;
         creator_account.content = Vec::new();
+        creator_account.last_content_id = 0;
         Ok(())
     }
 
@@ -27,10 +28,14 @@ pub mod auton_program {
     ) -> Result<()> {
         let creator_account = &mut ctx.accounts.creator_account;
         
-        // Security check: Ensure the signer is the owner of the account.
         require!(creator_account.creator_wallet == *ctx.accounts.creator.key, CustomError::Unauthorized);
 
+        // Increment the counter to get a new ID
+        creator_account.last_content_id += 1;
+        let new_id = creator_account.last_content_id;
+
         let new_content = ContentItem {
+            id: new_id,
             title,
             price,
             encrypted_cid,
@@ -42,15 +47,12 @@ pub mod auton_program {
 
     // Records that a user has paid for a specific piece of content.
     // This transfers SOL from buyer to creator and creates an access receipt.
-    pub fn process_payment(ctx: Context<ProcessPayment>, content_hash: [u8; 32]) -> Result<()> {
+    pub fn process_payment(ctx: Context<ProcessPayment>, content_id: u64) -> Result<()> {
         let creator_account = &ctx.accounts.creator_account;
 
-        // Find the content item and its price by hashing and comparing.
-        // Note: This linear scan can become expensive if a creator has many content items.
-        // For a production system, a more efficient lookup method (like a hash map on-chain
-        // or passing a content index) would be a good optimization.
+        // Find the content item by its ID. This is much more efficient than hashing.
         let content_item = creator_account.content.iter().find(|item| {
-            anchor_lang::solana_program::hash::hash(&item.encrypted_cid).to_bytes() == content_hash
+            item.id == content_id
         }).ok_or(CustomError::ContentNotFound)?;
 
         let amount_to_pay = content_item.price;
@@ -73,7 +75,7 @@ pub mod auton_program {
         // Create the access receipt
         let access_account = &mut ctx.accounts.paid_access_account;
         access_account.buyer = *ctx.accounts.buyer.key;
-        access_account.content_hash = content_hash;
+        access_account.content_id = content_id;
         Ok(())
     }
 }
@@ -117,7 +119,7 @@ pub struct InitializeCreator<'info> {
     #[account(
         init,
         payer = creator,
-        space = 8 + 32 + 4,
+        space = 8 + 32 + 8 + 4, // discriminator + wallet + counter + vec prefix
         seeds = [b"creator", creator.key().as_ref()],
         bump
     )]
@@ -141,7 +143,8 @@ pub struct AddContent<'info> {
         mut,
         seeds = [b"creator", creator.key().as_ref()],
         bump,
-        realloc = 8 + 32 + 4 + (creator_account.content.len() + 1) * (4 + 128 + 8 + 4 + 100), // Approximate: title(128) + price(8) + encrypted_cid(100)
+        // Approximate: id(8) + title(128) + price(8) + encrypted_cid(100)
+        realloc = 8 + 32 + 8 + 4 + (creator_account.content.len() + 1) * (8 + 4 + 128 + 8 + 4 + 100), 
         realloc::payer = creator,
         realloc::zero = true
     )]
@@ -155,15 +158,15 @@ pub struct AddContent<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(content_hash: [u8; 32])]
+#[instruction(content_id: u64)]
 pub struct ProcessPayment<'info> {
     // The PDA "receipt" account.
     // The seeds ensure that a user can only have one receipt per content item.
     #[account(
         init,
         payer = buyer,
-        space = 8 + 32 + 32, // discriminator + buyer pubkey + content_hash
-        seeds = [b"access", buyer.key().as_ref(), &content_hash],
+        space = 8 + 32 + 8, // discriminator + buyer pubkey + content_id
+        seeds = [b"access", buyer.key().as_ref(), &content_id.to_le_bytes()],
         bump
     )]
     pub paid_access_account: Account<'info, PaidAccessAccount>,
