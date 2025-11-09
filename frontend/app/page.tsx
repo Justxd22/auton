@@ -1,37 +1,46 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import * as anchor from '@coral-xyz/anchor';
+import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { AutonProgram } from '@/lib/anchor/auton_program';
+import IDL from '@/lib/anchor/auton_program.json';
 
-const API_BASE_URL = '/api';
+const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'http://127.0.0.1:8899';
+const AUTON_PROGRAM_ID = process.env.NEXT_PUBLIC_AUTON_PROGRAM_ID;
 
-type PreviewInfo = {
-  mode: string;
-  enabled: boolean;
-  snippet?: string | null;
-  previewUrl?: string | null;
-  previewType?: string | null;
-  previewContentType?: string | null;
-};
+if (!AUTON_PROGRAM_ID) {
+  throw new Error('AUTON_PROGRAM_ID is not set in environment variables.');
+}
 
-type ContentSummary = {
-  id: string;
+const programId = new PublicKey(AUTON_PROGRAM_ID);
+
+type ContentItem = {
+  id: anchor.BN;
   title: string;
   description: string;
-  price: number;
-  assetType: string;
+  price: anchor.BN;
+  assetType: 'SOL' | 'USDC';
   contentKind: string;
   allowDownload: boolean;
-  creatorWalletAddress: string;
-  preview?: PreviewInfo;
-  categories?: string[];
-  status: string;
-  disclaimers?: {
-    refunds?: string;
+  creatorWalletAddress: PublicKey;
+  preview?: {
+    enabled: boolean;
+    mode: string;
+    snippet?: string | null;
+    previewUrl?: string | null;
+    previewType?: string | null;
+    previewContentType?: string | null;
   };
-  createdAt?: string;
+};
+
+type CreatorAccountData = {
+  creatorWallet: PublicKey;
+  lastContentId: anchor.BN;
+  content: ContentItem[];
 };
 
 const previewModes = [
@@ -51,89 +60,80 @@ type FormState = {
   title: string;
   description: string;
   price: string;
-  assetType: 'SOL' | 'USDC';
-  previewMode: 'auto' | 'custom' | 'off';
-  previewText: string;
-  categoriesInput: string;
-  contentKind: string;
-  allowDownload: boolean;
 };
 
 const defaultFormState: FormState = {
   title: '',
   description: '',
-  price: '0.5',
-  assetType: 'SOL',
-  previewMode: 'auto',
-  previewText: '',
-  categoriesInput: '',
-  contentKind: 'file',
-  allowDownload: true,
+  price: '0.02',
 };
 
 const bytesToMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(2);
 
-const toBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === 'string') {
-        const [, base64] = result.split(',');
-        resolve(base64 || '');
-      } else {
-        reject(new Error('Unsupported file format'));
-      }
-    };
-    reader.onerror = (err) => reject(err);
-    reader.readAsDataURL(file);
-  });
-
 export default function CreatorWorkspace() {
-  const { publicKey, connected } = useWallet();
+  const { publicKey, connected, sendTransaction } = useWallet();
   const [mounted, setMounted] = useState(false);
   const [creatorId, setCreatorId] = useState('');
-  const [walletAddress, setWalletAddress] = useState('');
   const [form, setForm] = useState<FormState>(defaultFormState);
   const [primaryFile, setPrimaryFile] = useState<File | null>(null);
-  const [previewFile, setPreviewFile] = useState<File | null>(null);
   const [status, setStatus] = useState<{ type: 'error' | 'success' | null; message: string }>({
     type: null,
     message: '',
   });
-  const [creatorContent, setCreatorContent] = useState<ContentSummary[]>([]);
-  const [exploreContent, setExploreContent] = useState<ContentSummary[]>([]);
+  const [creatorAccountData, setCreatorAccountData] = useState<CreatorAccountData | null>(null);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'creator' | 'explore'>('creator');
-  const [shareBase, setShareBase] = useState('/content');
+  const [fetchingContent, setFetchingContent] = useState(false);
+
+  const connection = useMemo(() => new Connection(SOLANA_RPC_URL, 'confirmed'), []);
+  
+  const provider = useMemo(() => {
+    const dummyWallet = {
+      publicKey: anchor.web3.Keypair.generate().publicKey,
+      signAllTransactions: async (txs: anchor.web3.Transaction[]) => txs,
+      signTransaction: async (tx: anchor.web3.Transaction) => tx,
+    };
+    return new anchor.AnchorProvider(connection, dummyWallet, {
+      commitment: 'confirmed',
+    });
+  }, [connection]);
+  
+  const program = useMemo(() => {
+    try {
+      if (provider && programId) {
+        // Ensure IDL is properly typed as an Idl
+        const idl = IDL as anchor.Idl;
+        return new anchor.Program(idl, provider) as anchor.Program<AutonProgram>;
+      }
+    } catch (error) {
+      console.error('Failed to initialize program:', error);
+      setStatus({ 
+        type: 'error', 
+        message: 'Failed to initialize program. Check IDL file and program ID.' 
+      });
+    }
+    return null;
+  }, [provider]);
+
+  const creatorAccountPDA = useMemo(() => {
+    if (!publicKey) return null;
+    const [pda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("creator"), publicKey.toBuffer()],
+      programId
+    );
+    return pda;
+  }, [publicKey]);
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setShareBase(`${window.location.origin}/content`);
-    }
-  }, []);
-
-  useEffect(() => {
     if (publicKey && connected && mounted) {
-      const wallet = publicKey.toString();
-      setWalletAddress(wallet);
-      setCreatorId((prev) => prev || wallet.slice(0, 8));
-    }
-  }, [publicKey, connected, mounted]);
-
-  useEffect(() => {
-    if (creatorId) {
+      setCreatorId(publicKey.toBase58());
       fetchCreatorContent();
+    } else {
+      setCreatorId('');
+      setCreatorAccountData(null);
     }
-  }, [creatorId]);
-
-  useEffect(() => {
-    if (activeTab === 'explore') {
-      fetchExploreContent();
-    }
-  }, [activeTab]);
+  }, [publicKey, connected, mounted, creatorAccountPDA]);
 
   const handleInputChange = (field: keyof FormState, value: string | boolean) => {
     setForm((prev) => ({
@@ -145,36 +145,26 @@ export default function CreatorWorkspace() {
   const resetForm = () => {
     setForm(defaultFormState);
     setPrimaryFile(null);
-    setPreviewFile(null);
   };
 
   const fetchCreatorContent = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/creator/${creatorId}/content`);
-      if (response.ok) {
-        const data = await response.json();
-        setCreatorContent(data.content || []);
-      }
-    } catch (error) {
-      console.error('Failed to load creator content', error);
-    }
-  };
+    if (!creatorAccountPDA || !program) return;
 
-  const fetchExploreContent = async () => {
+    setFetchingContent(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/content`);
-      if (response.ok) {
-        const data = await response.json();
-        setExploreContent(data.content || []);
-      }
-    } catch (error) {
-      console.error('Failed to load explore content', error);
+      const account = await program.account.creatorAccount.fetch(creatorAccountPDA);
+      setCreatorAccountData(account);
+    } catch (err: any) {
+      console.error('Failed to fetch creator account:', err);
+      setCreatorAccountData(null);
+    } finally {
+      setFetchingContent(false);
     }
   };
 
   const handleCreateContent = async () => {
-    if (!creatorId || !walletAddress) {
-      setStatus({ type: 'error', message: 'Connect your wallet or provide a payout address' });
+    if (!publicKey || !connected || !program) {
+      setStatus({ type: 'error', message: 'Connect your wallet to create content.' });
       return;
     }
 
@@ -187,100 +177,80 @@ export default function CreatorWorkspace() {
       setLoading(true);
       setStatus({ type: null, message: '' });
 
-      const fileData = await toBase64(primaryFile);
-      const previewFileData = previewFile ? await toBase64(previewFile) : undefined;
-      const categories = form.categoriesInput
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean);
-
-      const response = await fetch(`${API_BASE_URL}/content`, {
+      const formData = new FormData();
+      formData.append('file', primaryFile);
+      const uploadResponse = await fetch('/api/upload', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          creatorId,
-          walletAddress,
-          title: form.title,
-          description: form.description,
-          price: form.price,
-          assetType: form.assetType,
-          previewMode: form.previewMode,
-          previewText: form.previewText,
-          fileName: primaryFile.name,
-          fileType: primaryFile.type,
-          fileData,
-          previewFileData,
-          previewFileName: previewFile?.name,
-          previewFileType: previewFile?.type,
-          categories,
-          contentKind: form.contentKind,
-          allowDownload: form.allowDownload,
-        }),
+        body: formData,
       });
 
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create content');
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json();
+        throw new Error(errorData.error || 'Failed to upload file to IPFS.');
+      }
+      const { encryptedCid }: { encryptedCid: string } = await uploadResponse.json();
+
+      let currentCreatorAccount = creatorAccountData;
+      if (!currentCreatorAccount) {
+        setStatus({ type: 'success', message: 'Initializing creator account...' });
+        const initTx = new Transaction().add(
+          await program.methods
+            .initializeCreator()
+            .accounts({
+              creatorAccount: creatorAccountPDA,
+              creator: publicKey,
+              systemProgram: SystemProgram.programId,
+            })
+            .instruction()
+        );
+        const { blockhash } = await connection.getLatestBlockhash();
+        initTx.recentBlockhash = blockhash;
+        initTx.feePayer = publicKey;
+
+        const initSignature = await sendTransaction(initTx, connection);
+        await connection.confirmTransaction(initSignature, 'confirmed');
+        
+        // Add a delay to allow the RPC node to see the new account
+        await new Promise(resolve => setTimeout(resolve, 2000)); 
+
+        currentCreatorAccount = await program.account.creatorAccount.fetch(creatorAccountPDA);
+        setCreatorAccountData(currentCreatorAccount);
+        setStatus({ type: 'success', message: 'Creator account initialized. Adding content...' });
       }
 
-      const data = await response.json();
+      // 3. Build and send addContent transaction
+      const priceBN = new anchor.BN(parseFloat(form.price) * anchor.web3.LAMPORTS_PER_SOL);
+      const encryptedCidBuffer = Buffer.from(encryptedCid, 'hex');
+
+      const addContentTx = new Transaction().add(
+        await program.methods
+          .addContent(form.title, priceBN, encryptedCidBuffer)
+          .accounts({
+            creatorAccount: creatorAccountPDA,
+            creator: publicKey,
+          })
+          .instruction()
+      );
+
+      const { blockhash: addContentBlockhash } = await connection.getLatestBlockhash();
+      addContentTx.recentBlockhash = addContentBlockhash;
+      addContentTx.feePayer = publicKey;
+
+      const addContentSignature = await sendTransaction(addContentTx, connection);
+      await connection.confirmTransaction(addContentSignature, 'confirmed');
+
       setStatus({
         type: 'success',
-        message: `Encrypted drop published: ${data.content.title}`,
+        message: `Content "${form.title}" published on-chain!`,
       });
       resetForm();
       fetchCreatorContent();
     } catch (error: any) {
+      console.error('Failed to create content:', error);
       setStatus({ type: 'error', message: error.message || 'Something went wrong' });
     } finally {
       setLoading(false);
     }
-  };
-
-  const renderPreviewSnippet = (preview?: PreviewInfo) => {
-    if (!preview?.enabled) {
-      return <p className="text-sm text-gray-500">Preview disabled. Fully gated.</p>;
-    }
-
-    if (preview.previewType === 'text' && preview.snippet) {
-      return (
-        <p className="text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 rounded-lg p-3">
-          {preview.snippet}
-        </p>
-      );
-    }
-
-    if (preview.previewType === 'file' && preview.previewUrl) {
-      if (preview.previewContentType?.startsWith('video/')) {
-        return (
-          <video controls className="w-full rounded-lg">
-            <source src={preview.previewUrl} type={preview.previewContentType} />
-          </video>
-        );
-      }
-      if (preview.previewContentType?.startsWith('audio/')) {
-        return (
-          <audio controls className="w-full">
-            <source src={preview.previewUrl} type={preview.previewContentType} />
-          </audio>
-        );
-      }
-      if (preview.previewContentType?.startsWith('image/')) {
-        return <img src={preview.previewUrl} alt="Preview" className="w-full rounded-lg" />;
-      }
-      return (
-        <a
-          href={preview.previewUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="text-sm text-purple-600 underline"
-        >
-          View preview file
-        </a>
-      );
-    }
-
-    return <p className="text-sm text-gray-500">Preview processing...</p>;
   };
 
   return (
@@ -290,34 +260,11 @@ export default function CreatorWorkspace() {
           <div>
             <p className="text-sm font-semibold uppercase text-purple-500">x402 Pay-to-Access</p>
             <h1 className="text-4xl font-bold text-gray-900 dark:text-white mt-2">
-              Drop encrypted content, unlock with SOL
+              Creator Workspace
             </h1>
             <p className="text-gray-600 dark:text-gray-300 mt-2 max-w-3xl">
-              Upload any premium file, decide whether to surface a spoiler, and let fans unlock it
-              instantly. Funds route directly to your wallet—no custody, no refunds, no waiting.
+              Upload any premium file, set a price, and let fans unlock it instantly. Funds route directly to your wallet.
             </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={() => setActiveTab('creator')}
-              className={`px-4 py-2 rounded-full text-sm font-medium ${
-                activeTab === 'creator'
-                  ? 'bg-purple-600 text-white shadow'
-                  : 'bg-white/70 text-purple-600'
-              }`}
-            >
-              Creator workspace
-            </button>
-            <button
-              onClick={() => setActiveTab('explore')}
-              className={`px-4 py-2 rounded-full text-sm font-medium ${
-                activeTab === 'explore'
-                  ? 'bg-purple-600 text-white shadow'
-                  : 'bg-white/70 text-purple-600'
-              }`}
-            >
-              Explore gated drops
-            </button>
           </div>
         </header>
 
@@ -337,235 +284,98 @@ export default function CreatorWorkspace() {
           </div>
         )}
 
-        {activeTab === 'creator' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <section className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 space-y-5">
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Creator ID
-                </label>
-                <input
-                  type="text"
-                  value={creatorId}
-                  onChange={(e) => setCreatorId(e.target.value)}
-                  placeholder="e.g. wallet prefix or custom handle"
-                  className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white"
-                />
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <section className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 space-y-5">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">Create New Drop</h2>
+            
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Title
+              </label>
+              <input
+                type="text"
+                value={form.title}
+                onChange={(e) => handleInputChange('title', e.target.value)}
+                placeholder="Name of your gated content"
+                className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              />
+            </div>
 
-              {!connected && (
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Payout wallet address
-                  </label>
-                  <input
-                    type="text"
-                    value={walletAddress}
-                    onChange={(e) => setWalletAddress(e.target.value)}
-                    placeholder="Provide a Solana address to receive unlocks"
-                    className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                  />
-                </div>
-              )}
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Description
+              </label>
+              <textarea
+                value={form.description}
+                onChange={(e) => handleInputChange('description', e.target.value)}
+                rows={3}
+                placeholder="A short pitch for what buyers will receive."
+                className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              />
+            </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Drop title
-                </label>
-                <input
-                  type="text"
-                  value={form.title}
-                  onChange={(e) => handleInputChange('title', e.target.value)}
-                  placeholder="Name of your gated content"
-                  className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                />
-              </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Price (in SOL)
+              </label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={form.price}
+                onChange={(e) => handleInputChange('price', e.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
+              />
+            </div>
 
-              <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Description
-                </label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => handleInputChange('description', e.target.value)}
-                  rows={3}
-                  placeholder="Short pitch. Mention format, runtime, or what buyers will receive."
-                  className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Price ({form.assetType})
-                  </label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.01"
-                    value={form.price}
-                    onChange={(e) => handleInputChange('price', e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Asset
-                  </label>
-                  <select
-                    value={form.assetType}
-                    onChange={(e) => handleInputChange('assetType', e.target.value as FormState['assetType'])}
-                    className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                  >
-                    <option value="SOL">SOL</option>
-                    <option value="USDC" disabled>
-                      USDC (soon)
-                    </option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Content type
-                  </label>
-                  <select
-                    value={form.contentKind}
-                    onChange={(e) => handleInputChange('contentKind', e.target.value)}
-                    className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                  >
-                    {contentKinds.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Preview / spoiler
+            <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-4">
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                Upload Gated File
+              </label>
+              <input
+                type="file"
+                onChange={(e) => setPrimaryFile(e.target.files?.[0] || null)}
+                className="mt-2 w-full text-sm text-gray-600 dark:text-gray-300"
+              />
+              {primaryFile && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {primaryFile.name} ({bytesToMb(primaryFile.size)} MB)
                 </p>
-                <div className="space-y-3">
-                  {previewModes.map((mode) => (
-                    <label
-                      key={mode.value}
-                      className="flex items-center gap-3 rounded-lg border border-gray-200 dark:border-gray-600 px-3 py-2 text-sm text-gray-700 dark:text-gray-300"
-                    >
-                      <input
-                        type="radio"
-                        name="preview-mode"
-                        value={mode.value}
-                        checked={form.previewMode === mode.value}
-                        onChange={(e) =>
-                          handleInputChange('previewMode', e.target.value as FormState['previewMode'])
-                        }
-                      />
-                      <span>{mode.label}</span>
-                    </label>
-                  ))}
-                  {form.previewMode === 'custom' && (
-                    <div className="space-y-3 rounded-lg border border-dashed border-purple-200 dark:border-purple-800 p-3">
-                      <textarea
-                        value={form.previewText}
-                        onChange={(e) => handleInputChange('previewText', e.target.value)}
-                        rows={2}
-                        placeholder="Optional teaser text (max ~500 chars)"
-                        className="w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-sm"
-                      />
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">
-                          Optional teaser file
-                        </label>
-                        <input
-                          type="file"
-                          onChange={(e) => setPreviewFile(e.target.files?.[0] || null)}
-                          className="mt-1 w-full text-sm text-gray-600 dark:text-gray-300"
-                        />
-                        {previewFile && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            {previewFile.name} ({bytesToMb(previewFile.size)} MB)
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+              )}
+            </div>
 
-              <div className="space-y-3">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                    Categories / tags
-                  </label>
-                  <input
-                    type="text"
-                    value={form.categoriesInput}
-                    onChange={(e) => handleInputChange('categoriesInput', e.target.value)}
-                    placeholder="music, behind-the-scenes, code drop"
-                    className="mt-1 w-full rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2"
-                  />
-                </div>
-                <label className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                  <input
-                    type="checkbox"
-                    checked={form.allowDownload}
-                    onChange={(e) => handleInputChange('allowDownload', e.target.checked)}
-                  />
-                  Allow download after unlock (otherwise just stream inside app)
-                </label>
-              </div>
+            <button
+              onClick={handleCreateContent}
+              disabled={loading || !connected}
+              className="w-full rounded-lg bg-purple-600 py-3 text-white font-semibold shadow hover:bg-purple-700 disabled:bg-gray-400"
+            >
+              {loading ? 'Processing...' : 'Encrypt & Publish Drop'}
+            </button>
+          </section>
 
-              <div className="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 p-4">
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  Upload gated file
-                </label>
-                <input
-                  type="file"
-                  onChange={(e) => setPrimaryFile(e.target.files?.[0] || null)}
-                  className="mt-2 w-full text-sm text-gray-600 dark:text-gray-300"
-                />
-                {primaryFile && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {primaryFile.name} ({bytesToMb(primaryFile.size)} MB)
+          <section className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                  Your Published Drops
+                </h2>
+                {creatorId && (
+                  <p className="text-sm text-gray-500">
+                    Share your page:{' '}
+                    <Link href={`/creators/${creatorId}`} className="text-purple-600 hover:underline">
+                      /creators/{creatorId.slice(0, 8)}...
+                    </Link>
                   </p>
                 )}
               </div>
-
-              <button
-                onClick={handleCreateContent}
-                disabled={loading}
-                className="w-full rounded-lg bg-purple-600 py-3 text-white font-semibold shadow hover:bg-purple-700 disabled:bg-gray-400"
-              >
-                {loading ? 'Encrypting...' : 'Encrypt & publish to paywall'}
-              </button>
-
-              <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-900">
-                ⚠️ On-chain purchases are final. We display a “no refunds” disclaimer to fans right
-                before they unlock.
-              </div>
-            </section>
-
-            <section className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                    Your encrypted drops
-                  </h2>
-                  <p className="text-sm text-gray-500">
-                    Share <code className="font-mono text-xs">{shareBase}/[contentId]</code> with
-                    fans.
-                  </p>
-                </div>
-              </div>
-              {creatorContent.length === 0 && (
-                <p className="text-sm text-gray-500">
-                  Upload your first gated file to see it here.
-                </p>
-              )}
+            </div>
+            {fetchingContent ? (
+              <p className="text-sm text-gray-500">Loading your content...</p>
+            ) : creatorAccountData && creatorAccountData.content.length > 0 ? (
               <div className="space-y-4">
-                {creatorContent.map((content) => (
+                {creatorAccountData.content.map((content) => (
                   <div
-                    key={content.id}
+                    key={content.id.toNumber()}
                     className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3"
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -573,84 +383,28 @@ export default function CreatorWorkspace() {
                         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
                           {content.title}
                         </h3>
-                        <p className="text-sm text-gray-500">{content.contentKind}</p>
+                        <p className="text-sm text-gray-500">ID: {content.id.toNumber()}</p>
                       </div>
                       <Link
-                        href={`/content/${content.id}`}
+                        href={`/creators/${creatorId}`}
                         className="text-sm text-purple-600 hover:underline"
                       >
                         View paywall →
                       </Link>
                     </div>
-                    <p className="text-sm text-gray-600 dark:text-gray-300">{content.description}</p>
-                    <div className="flex flex-wrap gap-3 text-sm text-gray-600 dark:text-gray-400">
-                      <span className="rounded-full bg-purple-50 dark:bg-purple-900/30 px-3 py-1 text-purple-700 dark:text-purple-200 font-medium">
-                        {content.price} {content.assetType}
-                      </span>
-                      <span className="rounded-full bg-gray-100 dark:bg-gray-700 px-3 py-1">
-                        Preview: {content.preview?.enabled ? content.preview.mode : 'hidden'}
-                      </span>
-                      {content.allowDownload ? (
-                        <span className="rounded-full bg-green-100 text-green-800 px-3 py-1">
-                          Download enabled
-                        </span>
-                      ) : (
-                        <span className="rounded-full bg-yellow-100 text-yellow-800 px-3 py-1">
-                          Stream only
-                        </span>
-                      )}
-                    </div>
-                    {renderPreviewSnippet(content.preview)}
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
+                      Price: {content.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL} SOL
+                    </p>
                   </div>
                 ))}
               </div>
-            </section>
-          </div>
-        )}
-
-        {activeTab === 'explore' && (
-          <section className="bg-white dark:bg-gray-800 rounded-xl shadow p-6 space-y-5">
-            <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-              Pay-to-access catalog
-            </h2>
-            <p className="text-sm text-gray-500">
-              Discover demo snippets. Unlock full files instantly with SOL on devnet.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-              {exploreContent.map((content) => (
-                <div
-                  key={content.id}
-                  className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-gray-900 dark:text-white">{content.title}</h3>
-                      <p className="text-xs uppercase tracking-wide text-gray-500">
-                        {content.contentKind}
-                      </p>
-                    </div>
-                    <span className="text-purple-600 font-semibold">
-                      {content.price} {content.assetType}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300">
-                    {content.description}
-                  </p>
-                  {renderPreviewSnippet(content.preview)}
-                  <Link
-                    href={`/content/${content.id}`}
-                    className="inline-flex items-center text-sm text-purple-600 hover:underline font-medium"
-                  >
-                    Unlock →
-                  </Link>
-                </div>
-              ))}
-              {exploreContent.length === 0 && (
-                <p className="text-sm text-gray-500">No drops published yet. Check back soon.</p>
-              )}
-            </div>
+            ) : (
+              <p className="text-sm text-gray-500">
+                {connected ? 'You have not published any drops yet.' : 'Connect your wallet to see your drops.'}
+              </p>
+            )}
           </section>
-        )}
+        </div>
       </div>
     </div>
   );

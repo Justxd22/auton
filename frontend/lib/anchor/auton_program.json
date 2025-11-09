@@ -1,0 +1,295 @@
+{
+  "address": "9Dpgf1nWom5Psp6vwLs1J6WF7dVbySQwk8HhLSqXx62n",
+  "metadata": {
+    "name": "auton_program",
+    "version": "0.1.0",
+    "spec": "0.1.0",
+    "description": "Created with Anchor"
+  },
+  "instructions": [
+    {
+      "name": "add_content",
+      "discriminator": [
+        183,
+        126,
+        202,
+        103,
+        73,
+        114,
+        135,
+        191
+      ],
+      "accounts": [
+        {
+          "name": "creator_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "title",
+          "type": "string"
+        },
+        {
+          "name": "price",
+          "type": "u64"
+        },
+        {
+          "name": "encrypted_cid",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
+      "name": "initialize_creator",
+      "discriminator": [
+        29,
+        153,
+        44,
+        99,
+        52,
+        172,
+        81,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "creator_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  114,
+                  101,
+                  97,
+                  116,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "creator"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "process_payment",
+      "discriminator": [
+        189,
+        81,
+        30,
+        198,
+        139,
+        186,
+        115,
+        23
+      ],
+      "accounts": [
+        {
+          "name": "paid_access_account",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  97,
+                  99,
+                  99,
+                  101,
+                  115,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "buyer"
+              },
+              {
+                "kind": "arg",
+                "path": "content_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "creator_account",
+          "writable": true
+        },
+        {
+          "name": "creator_wallet",
+          "writable": true
+        },
+        {
+          "name": "buyer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "content_id",
+          "type": "u64"
+        }
+      ]
+    }
+  ],
+  "accounts": [
+    {
+      "name": "CreatorAccount",
+      "discriminator": [
+        222,
+        163,
+        32,
+        169,
+        204,
+        8,
+        200,
+        32
+      ]
+    },
+    {
+      "name": "PaidAccessAccount",
+      "discriminator": [
+        231,
+        188,
+        255,
+        33,
+        153,
+        205,
+        111,
+        44
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "Unauthorized",
+      "msg": "You are not authorized to perform this action."
+    },
+    {
+      "code": 6001,
+      "name": "ContentNotFound",
+      "msg": "The specified content was not found in the creator's account."
+    }
+  ],
+  "types": [
+    {
+      "name": "ContentItem",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "id",
+            "type": "u64"
+          },
+          {
+            "name": "title",
+            "type": "string"
+          },
+          {
+            "name": "price",
+            "type": "u64"
+          },
+          {
+            "name": "encrypted_cid",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "CreatorAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "creator_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "last_content_id",
+            "type": "u64"
+          },
+          {
+            "name": "content",
+            "type": {
+              "vec": {
+                "defined": {
+                  "name": "ContentItem"
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "PaidAccessAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "pubkey"
+          },
+          {
+            "name": "content_id",
+            "type": "u64"
+          }
+        ]
+      }
+    }
+  ]
+}
