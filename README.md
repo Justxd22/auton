@@ -44,7 +44,7 @@ request tx│                                                │verify tx
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone <[repository-url](https://github.com/eshaanmathakari/auton)>
 cd auton
 ```
 
