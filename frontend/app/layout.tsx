@@ -29,41 +29,46 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gradient-to-br from-purple-50 to-blue-50 dark:from-gray-900 dark:to-gray-800`}
       >
         <ThemeProvider>
-        <WalletProvider>
-          <header className="sticky top-0 z-50 bg-[#F5F5F5]/95 dark:bg-[#F5F5F5]/95 backdrop-blur-md border-b border-[#E0E0E0] dark:border-[#E0E0E0]">
-            <div className="container mx-auto px-4 py-4 max-w-7xl">
-              <div className="flex items-center justify-between">
-                <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-                  <Image
-                    src="/auton-logo.png"
-                    alt="Auton Logo"
-                    width={40}
-                    height={40}
-                    className="object-contain"
-                  />
-                  <span className="text-xl font-semibold text-gray-900 dark:text-gray-900">Auton</span>
-                </Link>
-                <nav className="flex items-center gap-4">
-                  <Link
-                    href="/"
-                    className="text-sm font-medium text-gray-600 dark:text-gray-700 hover:text-gray-900 dark:hover:text-gray-900 transition-colors"
-                  >
-                    Creator Hub
+          <WalletProvider>
+            <header className="sticky top-0 z-50 py-4">
+              <div className="container mx-auto px-4 max-w-7xl">
+                <div className="flex items-center justify-between backdrop-blur-xl rounded-full px-6 py-3 shadow-lg border border-gray-200/50 dark:border-gray-700/50">
+                  <Link href="/" className="flex items-center gap-3 group">
+                    <div className="relative transition-all">
+                      <Image
+                        src="/auton-logo.png"
+                        alt="Auton Logo"
+                        width={40}
+                        height={40}
+                        className="object-contain"
+                      />
+                    </div>
+                    <span className="text-xl font-bold text-white bg-clip-text text-transparent">
+                      Auton
+                    </span>
                   </Link>
-                  <ThemeToggle />
-                </nav>
+                  <nav className="flex items-center gap-3">
+                    <Link
+                      href="/"
+                      className="px-5 py-2 text-sm font-semibold text-gray-700 dark:text-gray-300 hover:text-white hover:bg-gradient-to-r hover:from-blue-600 hover:to-purple-600 rounded-full transition-all duration-300"
+                    >
+                      Creator Hub
+                    </Link>
+                    <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+                    <ThemeToggle />
+                  </nav>
+                </div>
               </div>
-            </div>
-          </header>
-          <main className="min-h-[calc(100vh-73px)]">
-            {children}
-          </main>
-        </WalletProvider>
+            </header>
+            <main className="min-h-[calc(100vh-73px)]">
+              {children}
+            </main>
+          </WalletProvider>
         </ThemeProvider>
       </body>
     </html>
