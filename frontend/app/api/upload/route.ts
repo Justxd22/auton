@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         name: file.name,
       },
       pinataOptions: {
-        cidVersion: 0,
+        cidVersion: 0 as 0, // Explicitly set as literal type 0
       },
     };
 

@@ -76,10 +76,11 @@ export default function CreatorWorkspace() {
   const connection = useMemo(() => new Connection(SOLANA_RPC_URL, 'confirmed'), []);
   
   const provider = useMemo(() => {
+    // Create a dummy wallet for read-only operations
     const dummyWallet = {
       publicKey: anchor.web3.Keypair.generate().publicKey,
-      signAllTransactions: async (txs: anchor.web3.Transaction[]) => txs,
-      signTransaction: async (tx: anchor.web3.Transaction) => tx,
+      signAllTransactions: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(txs: T[]): Promise<T[]> => txs,
+      signTransaction: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(tx: T): Promise<T> => tx,
     };
     return new anchor.AnchorProvider(connection, dummyWallet, {
       commitment: 'confirmed',
