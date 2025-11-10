@@ -54,8 +54,8 @@ export async function GET(
     const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
     const provider = new anchor.AnchorProvider(connection, {
       publicKey: Keypair.generate().publicKey,
-      signAllTransactions: async (txs: Transaction[]) => txs,
-      signTransaction: async (tx: Transaction) => tx,
+      signAllTransactions: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(txs: T[]): Promise<T[]> => txs,
+      signTransaction: async <T extends anchor.web3.Transaction | anchor.web3.VersionedTransaction>(tx: T): Promise<T> => tx,
     }, {
       commitment: 'confirmed',
     });
