@@ -9,6 +9,23 @@ declare_id!("9Dpgf1nWom5Psp6vwLs1J6WF7dVbySQwk8HhLSqXx62n");
 pub mod auton_program {
     use super::*;
 
+    // NEW: Registers a username for a creator
+    // This creates a PDA that maps a username to a wallet address
+    pub fn register_username(ctx: Context<RegisterUsername>, username: String) -> Result<()> {
+        // Validate username
+        require!(username.len() >= 3 && username.len() <= 32, CustomError::InvalidUsername);
+        require!(
+            username.chars().all(|c| c.is_alphanumeric() || c == '_'),
+            CustomError::InvalidUsername
+        );
+
+        let username_account = &mut ctx.accounts.username_account;
+        username_account.authority = *ctx.accounts.creator.key;
+        username_account.username = username;
+
+        Ok(())
+    }
+
     // Initializes a new account for a creator to hold their content list.
     // This only needs to be called once per creator.
     pub fn initialize_creator(ctx: Context<InitializeCreator>) -> Result<()> {
@@ -83,6 +100,13 @@ pub mod auton_program {
 // 1. ACCOUNTS (State)
 // These structs define the shape of the data we store on-chain.
 
+// NEW: Username registry entry - maps username to wallet address
+#[account]
+pub struct UsernameAccount {
+    pub authority: Pubkey,  // The creator's wallet address
+    pub username: String,   // The username itself
+}
+
 #[account]
 pub struct CreatorAccount {
     pub creator_wallet: Pubkey,
@@ -108,6 +132,28 @@ pub struct PaidAccessAccount {
 // 2. INSTRUCTION CONTEXTS
 // These structs define the accounts required by each instruction.
 // Anchor uses this to validate that the correct accounts are passed in.
+
+// NEW: Context for registering a username
+#[derive(Accounts)]
+#[instruction(username: String)]
+pub struct RegisterUsername<'info> {
+    // The PDA account for the username registry entry.
+    // Seeds include the username, ensuring each username can only be claimed once.
+    #[account(
+        init,
+        payer = creator,
+        space = 8 + 32 + 4 + username.len(), // discriminator + pubkey + string length + username
+        seeds = [b"username", username.as_bytes()],
+        bump
+    )]
+    pub username_account: Account<'info, UsernameAccount>,
+
+    // The creator claiming the username
+    #[account(mut)]
+    pub creator: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
 
 #[derive(Accounts)]
 pub struct InitializeCreator<'info> {
@@ -199,4 +245,7 @@ pub enum CustomError {
     Unauthorized,
     #[msg("The specified content was not found in the creator's account.")]
     ContentNotFound,
+
+    #[msg("Invalid username. Must be 3-32 characters, alphanumeric or underscore only.")]
+    InvalidUsername,
 }

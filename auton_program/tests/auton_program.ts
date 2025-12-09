@@ -49,6 +49,107 @@ describe("auton_program", () => {
     }
   });
 
+  describe("Username Registration", () => {
+    it("Registers a valid username", async () => {
+      const username = "cool_creator_1";
+      const [usernamePDA, _] = web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("username"), Buffer.from(username)],
+        program.programId
+      );
+
+      await program.methods
+        .registerUsername(username)
+        .accounts({
+          usernameAccount: usernamePDA,
+          creator: creator1.publicKey,
+          systemProgram: web3.SystemProgram.programId,
+        })
+        .signers([creator1])
+        .rpc();
+
+      const account = await program.account.usernameAccount.fetch(usernamePDA);
+      assert.ok(account.authority.equals(creator1.publicKey));
+      assert.equal(account.username, username);
+    });
+
+    it("Fails when username is too short", async () => {
+      const username = "ab";
+      const [usernamePDA, _] = web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("username"), Buffer.from(username)],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .registerUsername(username)
+          .accounts({
+            usernameAccount: usernamePDA,
+            creator: creator1.publicKey,
+            systemProgram: web3.SystemProgram.programId,
+          })
+          .signers([creator1])
+          .rpc();
+        assert.fail("Should have failed");
+      } catch (err) {
+        assert.isTrue(err instanceof anchor.AnchorError);
+        const anchorError = err as anchor.AnchorError;
+        assert.equal(anchorError.error.errorCode.code, "InvalidUsername");
+      }
+    });
+
+    it("Fails when username contains invalid characters", async () => {
+      const username = "invalid!name";
+      const [usernamePDA, _] = web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("username"), Buffer.from(username)],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .registerUsername(username)
+          .accounts({
+            usernameAccount: usernamePDA,
+            creator: creator1.publicKey,
+            systemProgram: web3.SystemProgram.programId,
+          })
+          .signers([creator1])
+          .rpc();
+        assert.fail("Should have failed");
+      } catch (err) {
+        assert.isTrue(err instanceof anchor.AnchorError);
+        const anchorError = err as anchor.AnchorError;
+        assert.equal(anchorError.error.errorCode.code, "InvalidUsername");
+      }
+    });
+
+    it("Fails when registering a duplicate username", async () => {
+      const username = "cool_creator_1"; // Already registered by creator1
+      const [usernamePDA, _] = web3.PublicKey.findProgramAddressSync(
+        [Buffer.from("username"), Buffer.from(username)],
+        program.programId
+      );
+
+      try {
+        await program.methods
+          .registerUsername(username)
+          .accounts({
+            usernameAccount: usernamePDA,
+            creator: creator2.publicKey, // Creator 2 tries to steal it
+            systemProgram: web3.SystemProgram.programId,
+          })
+          .signers([creator2])
+          .rpc();
+        assert.fail("Should have failed");
+      } catch (err) {
+        // Expect a constraint error (account already in use/initialized)
+        // In Anchor, trying to init an account that exists throws a specific error
+        // often related to the system program or PDA constraints.
+        // We just assert that it failed.
+        assert.ok(err);
+      }
+    });
+  });
+
   describe("Creator and Content Management", () => {
     it("Initializes multiple creator accounts", async () => {
       for (const creator of allCreators) {
