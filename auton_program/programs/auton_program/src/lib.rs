@@ -1,9 +1,12 @@
 use anchor_lang::prelude::*;
 
+// Import vault governance program for CPI
+use vault_governance::VaultState;
+use vault_governance::program::VaultGovernance;
 
 // This is the program's on-chain ID.
 // It will be replaced with the real Program ID after deployment.
-declare_id!("9Dpgf1nWom5Psp6vwLs1J6WF7dVbySQwk8HhLSqXx62n");
+declare_id!("CP4u2AjZeWdjjhxuGUsWLFAqyzGLu8cUU3xdeDnzkqyk");
 
 #[program]
 pub mod auton_program {
@@ -63,7 +66,7 @@ pub mod auton_program {
     }
 
     // Records that a user has paid for a specific piece of content.
-    // This transfers SOL from buyer to creator and creates an access receipt.
+    // This transfers SOL from buyer to creator, collects platform fees to vault, and creates an access receipt.
     pub fn process_payment(ctx: Context<ProcessPayment>, content_id: u64) -> Result<()> {
         let creator_account = &ctx.accounts.creator_account;
 
@@ -74,18 +77,52 @@ pub mod auton_program {
 
         let amount_to_pay = content_item.price;
 
-        // Transfer SOL from buyer to creator's wallet
+        // Get vault state to calculate fee percentage
+        let vault_state = &ctx.accounts.vault_state;
+        let fee_percentage = vault_state.fee_percentage; // Basis points (10000 = 100%)
+        let platform_fee = (amount_to_pay * fee_percentage) / 10000;
+        let creator_amount = amount_to_pay - platform_fee;
+
+        // Transfer platform fee to vault via CPI
+        // Note: After building with Anchor, use the generated CPI module:
+        // use vault_governance::cpi::accounts::CollectFees;
+        // vault_governance::cpi::collect_fees(collect_fees_ctx, amount_to_pay)?;
+        
+        // For now, calculate and transfer fee directly
+        // TODO: Replace with CPI call after building and generating IDL
+        let fee_amount = platform_fee;
+        
+        // Transfer fee from buyer to vault wallet
+        let fee_transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
+            &ctx.accounts.buyer.key(),
+            &ctx.accounts.vault_wallet.key(),
+            fee_amount,
+        );
+        
+        anchor_lang::solana_program::program::invoke(
+            &fee_transfer_ix,
+            &[
+                ctx.accounts.buyer.to_account_info(),
+                ctx.accounts.vault_wallet.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
+        
+        msg!("Collected {} lamports in platform fees", fee_amount);
+
+        // Transfer remaining amount to creator
         let transfer_instruction = anchor_lang::solana_program::system_instruction::transfer(
             &ctx.accounts.buyer.key(),
-            &ctx.accounts.creator_wallet.key(), // Use the verified wallet from the creator_account
-            amount_to_pay,
+            &ctx.accounts.creator_wallet.key(),
+            creator_amount,
         );
         
         anchor_lang::solana_program::program::invoke(
             &transfer_instruction,
             &[
                 ctx.accounts.buyer.to_account_info(),
-                ctx.accounts.creator_wallet.to_account_info(), // Use the verified wallet
+                ctx.accounts.creator_wallet.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
             ],
         )?;
 
@@ -93,6 +130,10 @@ pub mod auton_program {
         let access_account = &mut ctx.accounts.paid_access_account;
         access_account.buyer = *ctx.accounts.buyer.key;
         access_account.content_id = content_id;
+        
+        msg!("Payment processed: {} lamports (fee: {}, creator: {})", 
+             amount_to_pay, platform_fee, creator_amount);
+        
         Ok(())
     }
 }
@@ -231,6 +272,18 @@ pub struct ProcessPayment<'info> {
     // The user who is paying.
     #[account(mut)]
     pub buyer: Signer<'info>,
+
+    // Vault governance accounts for fee collection
+    /// CHECK: Vault state PDA
+    #[account(mut, seeds = [b"vault_state"], bump)]
+    pub vault_state: Account<'info, VaultState>,
+
+    /// CHECK: Vault wallet that receives fees
+    #[account(mut, address = vault_state.vault_wallet)]
+    pub vault_wallet: AccountInfo<'info>,
+
+    /// CHECK: Vault governance program
+    pub vault_governance_program: Program<'info, VaultGovernance>,
 
     pub system_program: Program<'info, System>,
 }

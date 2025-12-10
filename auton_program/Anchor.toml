@@ -6,6 +6,9 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
+auton_program = "CP4u2AjZeWdjjhxuGUsWLFAqyzGLu8cUU3xdeDnzkqyk"
+sponsor_program = "FqvRWFBSiDmN3PBwCfs9YZAhh53goQF2YxYku2b8jVXo"
+vault_governance = "Afe5nZMYr8s63mbbrBCweydXsB4o45ztiKFAA5gmmPvm"
 
 [registry]
 url = "https://api.apr.dev"
@@ -16,3 +19,4 @@ wallet = "~/.config/solana/id.json"
 
 [scripts]
 test = "pnpm test"
+initialize-vault = "tsx scripts/initialize-vault.ts"

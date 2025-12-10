@@ -1,15 +1,23 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import * as anchor from '@coral-xyz/anchor';
-import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { AutonProgram } from '@/lib/anchor/auton_program';
 import IDL from '@/lib/anchor/auton_program.json';
+import UsernameSetup from '@/components/UsernameSetup';
+import CreatorProfile from '@/components/CreatorProfile';
+import { SocialLogin } from '@/components/SocialLogin';
+import { usePrivy } from '@privy-io/react-auth';
+import { usePrivySolanaWallet, usePrivySendTransaction } from '@/lib/privy-solana-adapter';
+import { getUserFriendlyErrorMessage, logWalletError, validateTransaction } from '@/lib/transaction-utils';
+import { Copy, CheckCircle, ExternalLink, User, Settings } from 'lucide-react';
 
 const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'http://127.0.0.1:8899';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const AUTON_PROGRAM_ID = process.env.NEXT_PUBLIC_AUTON_PROGRAM_ID;
 
 if (!AUTON_PROGRAM_ID) {
@@ -17,6 +25,16 @@ if (!AUTON_PROGRAM_ID) {
 }
 
 const programId = new PublicKey(AUTON_PROGRAM_ID);
+
+type CreatorProfile = {
+  id: string;
+  username: string | null;
+  displayName: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  socialLinks: Record<string, string>;
+  profileUrl: string;
+};
 
 type ContentItem = {
   id: anchor.BN;
@@ -59,7 +77,16 @@ const defaultFormState: FormState = {
 const bytesToMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(2);
 
 export default function CreatorWorkspace() {
-  const { publicKey, connected, sendTransaction } = useWallet();
+  const { publicKey: walletPublicKey, connected, sendTransaction, wallet } = useWallet();
+  const { connection } = useConnection();
+  const { authenticated: privyAuthenticated, user: privyUser, sendSolanaTransaction } = usePrivy();
+  const privySolanaWallet = usePrivySolanaWallet();
+  const privySendTx = usePrivySendTransaction();
+  
+  // Use Privy wallet if available, otherwise use wallet adapter
+  const publicKey = walletPublicKey || privySolanaWallet?.publicKey || null;
+  const isConnected = connected || (privyAuthenticated && !!privySolanaWallet?.publicKey);
+  
   const [mounted, setMounted] = useState(false);
   const [creatorId, setCreatorId] = useState('');
   const [form, setForm] = useState<FormState>(defaultFormState);
@@ -72,8 +99,19 @@ export default function CreatorWorkspace() {
   const [loading, setLoading] = useState(false);
   const [fetchingContent, setFetchingContent] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  
+  // Username & profile state
+  const [creatorProfile, setCreatorProfile] = useState<CreatorProfile | null>(null);
+  const [showUsernameSetup, setShowUsernameSetup] = useState(false);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  const connection = useMemo(() => new Connection(SOLANA_RPC_URL, 'confirmed'), []);
+  // Log connection endpoint for debugging
+  useEffect(() => {
+    if (connection) {
+      console.log('Using connection endpoint:', (connection as any).rpcEndpoint || 'default');
+    }
+  }, [connection]);
   
   const provider = useMemo(() => {
     // Create a dummy wallet for read-only operations
@@ -92,7 +130,20 @@ export default function CreatorWorkspace() {
       if (provider && programId) {
         // Ensure IDL is properly typed as an Idl
         const idl = IDL as anchor.Idl;
-        return new anchor.Program(idl, provider) as anchor.Program<AutonProgram>;
+        // Create program with explicit programId to ensure it matches environment variable
+        // This is critical for PDA derivation to work correctly
+        const prog = new anchor.Program(idl, programId, provider) as anchor.Program<AutonProgram>;
+        
+        // Warn if there's a mismatch
+        if (!prog.programId.equals(programId)) {
+          console.warn('Program ID mismatch:', {
+            programId: prog.programId.toBase58(),
+            envProgramId: programId.toBase58(),
+            idlAddress: (idl as any).address,
+          });
+        }
+        
+        return prog;
       }
     } catch (error) {
       console.error('Failed to initialize program:', error);
@@ -102,28 +153,107 @@ export default function CreatorWorkspace() {
       });
     }
     return null;
-  }, [provider]);
+  }, [provider, programId]);
 
   const creatorAccountPDA = useMemo(() => {
-    if (!publicKey) return null;
+    // Use either wallet adapter or Privy wallet
+    const activePublicKey = walletPublicKey || privySolanaWallet?.publicKey;
+    if (!activePublicKey || !program) return null;
+    // Use program.programId instead of the constant to ensure it matches the deployed program
     const [pda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("creator"), publicKey.toBuffer()],
-      programId
+      [Buffer.from("creator"), activePublicKey.toBuffer()],
+      program.programId
     );
     return pda;
-  }, [publicKey]);
+  }, [walletPublicKey, privySolanaWallet?.publicKey, program]);
 
   useEffect(() => setMounted(true), []);
 
+  // Fetch creator profile from backend
+  const fetchCreatorProfile = useCallback(async () => {
+    const activePublicKey = walletPublicKey || privySolanaWallet?.publicKey;
+    if (!activePublicKey) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/creators/${activePublicKey.toBase58()}`);
+      if (response.ok) {
+        const data = await response.json();
+        setCreatorProfile(data.creator);
+        // Don't show username setup if they already have a username
+        if (!data.creator.username) {
+          setShowUsernameSetup(true);
+        }
+      } else if (response.status === 404) {
+        // New creator, show username setup
+        setShowUsernameSetup(true);
+        setCreatorProfile(null);
+      }
+    } catch (err) {
+      console.error('Error fetching creator profile:', err);
+    }
+  }, [walletPublicKey, privySolanaWallet?.publicKey]);
+
   useEffect(() => {
-    if (publicKey && connected && mounted) {
+    if (publicKey && isConnected && mounted) {
       setCreatorId(publicKey.toBase58());
       fetchCreatorContent();
+      fetchCreatorProfile();
     } else {
       setCreatorId('');
       setCreatorAccountData(null);
+      setCreatorProfile(null);
+      setShowUsernameSetup(false);
     }
-  }, [publicKey, connected, mounted, creatorAccountPDA]);
+  }, [publicKey, isConnected, mounted, creatorAccountPDA, fetchCreatorProfile]);
+
+  const handleUsernameSet = (username: string) => {
+    setShowUsernameSetup(false);
+    setCreatorProfile(prev => prev ? { ...prev, username, profileUrl: `/creators/${username}` } : {
+      id: publicKey?.toBase58() || '',
+      username,
+      displayName: null,
+      bio: null,
+      avatarUrl: null,
+      socialLinks: {},
+      profileUrl: `/creators/${username}`,
+    });
+    setStatus({ type: 'success', message: `Username @${username} set successfully!` });
+  };
+
+  const handleSkipUsername = () => {
+    setShowUsernameSetup(false);
+  };
+
+  const getShareUrl = () => {
+    const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://auton.vercel.app';
+    if (creatorProfile?.username) {
+      return `${baseUrl}/creators/${creatorProfile.username}`;
+    }
+    return `${baseUrl}/creators/${creatorId}`;
+  };
+
+  const copyShareLink = async () => {
+    try {
+      await navigator.clipboard.writeText(getShareUrl());
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy link:', err);
+    }
+  };
+
+  const handleProfileUpdate = (updatedProfile: {
+    displayName: string | null;
+    bio: string | null;
+    avatarUrl: string | null;
+    socialLinks: Record<string, string>;
+  }) => {
+    setCreatorProfile(prev => prev ? {
+      ...prev,
+      ...updatedProfile,
+    } : null);
+    setStatus({ type: 'success', message: 'Profile updated successfully!' });
+  };
 
   const handleInputChange = (field: keyof FormState, value: string | boolean) => {
     setForm((prev) => ({
@@ -145,16 +275,43 @@ export default function CreatorWorkspace() {
       const account = await program.account.creatorAccount.fetch(creatorAccountPDA);
       setCreatorAccountData(account);
     } catch (err: any) {
-      console.error('Failed to fetch creator account:', err);
-      setCreatorAccountData(null);
+      // Check if error is "Account does not exist" (standard Anchor error for missing accounts)
+      const errorMessage = err?.message || err?.toString() || '';
+      if (errorMessage.includes('Account does not exist') || 
+          errorMessage.includes('AccountNotInitialized') ||
+          errorMessage.includes('InvalidAccountData')) {
+        // This is expected for new creators - not an error
+        console.log('Creator account not initialized yet (new user).');
+        setCreatorAccountData(null);
+      } else {
+        // Log other errors but don't show alarming messages to user
+        console.error('Failed to fetch creator account:', err);
+        setCreatorAccountData(null);
+      }
     } finally {
       setFetchingContent(false);
     }
   };
 
   const handleCreateContent = async () => {
-    if (!publicKey || !connected || !program) {
-      setStatus({ type: 'error', message: 'Connect your wallet to create content.' });
+    if (!publicKey) {
+      setStatus({ type: 'error', message: 'Wallet not connected. Please connect your wallet or sign in with Privy.' });
+      return;
+    }
+
+    if (!isConnected) {
+      setStatus({ type: 'error', message: 'Wallet connection not ready. Please wait a moment and try again.' });
+      return;
+    }
+
+    if (!program) {
+      setStatus({ type: 'error', message: 'Program not initialized. Please refresh the page.' });
+      return;
+    }
+
+    // Verify we have a way to send transactions
+    if (!privySendTx && !sendTransaction) {
+      setStatus({ type: 'error', message: 'No transaction sender available. Please connect a wallet.' });
       return;
     }
 
@@ -168,71 +325,348 @@ export default function CreatorWorkspace() {
       return;
     }
 
+    // Determine which transaction sender to use
+    const sendTx = privySendTx || sendTransaction;
+    const usePrivyTx = !!privySendTx;
+
+    // Debug logging
+    console.log('Transaction sender setup:', {
+      hasPrivyTx: !!privySendTx,
+      hasWalletAdapterTx: !!sendTransaction,
+      usePrivy: usePrivyTx,
+      publicKey: publicKey?.toBase58(),
+      connected,
+      privyAuthenticated,
+    });
+
     try {
       setLoading(true);
       setStatus({ type: null, message: '' });
 
+      // Step 1: Upload file to IPFS
+      setStatus({ type: 'success', message: 'Uploading file to IPFS...' });
       const formData = new FormData();
       formData.append('file', primaryFile);
-      const uploadResponse = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
+      
+      let uploadResponse: Response;
+      try {
+        uploadResponse = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (fetchError: any) {
+        throw new Error(`Network error during upload: ${fetchError.message}`);
+      }
 
       if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json();
-        throw new Error(errorData.error || 'Failed to upload file to IPFS.');
+        // Try to parse JSON error, but handle HTML error pages
+        let errorMessage = 'Failed to upload file to IPFS.';
+        try {
+          const errorData = await uploadResponse.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
+        } catch (parseError) {
+          // Response is not JSON (likely HTML error page)
+          const text = await uploadResponse.text();
+          console.error('Upload API returned non-JSON response:', text.substring(0, 200));
+          if (uploadResponse.status === 500) {
+            errorMessage = 'Upload service error. Please check that ENCRYPTION_SECRET_KEY is configured correctly.';
+          } else {
+            errorMessage = `Upload failed with status ${uploadResponse.status}. Please try again.`;
+          }
+        }
+        throw new Error(errorMessage);
       }
-      const { encryptedCid }: { encryptedCid: string } = await uploadResponse.json();
 
+      let uploadData: { encryptedCid: string };
+      try {
+        uploadData = await uploadResponse.json();
+      } catch (parseError) {
+        const text = await uploadResponse.text();
+        console.error('Failed to parse upload response:', text.substring(0, 200));
+        throw new Error('Invalid response from upload service. Please try again.');
+      }
+
+      if (!uploadData.encryptedCid) {
+        throw new Error('Upload succeeded but no encrypted CID returned.');
+      }
+
+      const { encryptedCid } = uploadData;
+
+      // Step 2: Initialize creator account if needed
       let currentCreatorAccount = creatorAccountData;
       if (!currentCreatorAccount) {
         setStatus({ type: 'success', message: 'Initializing creator account...' });
-        const initTx = new Transaction().add(
-          await program.methods
-            .initializeCreator()
-            .accounts({
-              creatorAccount: creatorAccountPDA,
-              creator: publicKey,
-              systemProgram: SystemProgram.programId,
-            })
-            .instruction()
-        );
-        const { blockhash } = await connection.getLatestBlockhash();
-        initTx.recentBlockhash = blockhash;
-        initTx.feePayer = publicKey;
+        try {
+          // Verify wallet is connected
+          if (!publicKey) {
+            throw new Error('Wallet not connected. Please connect your wallet first.');
+          }
 
-        const initSignature = await sendTransaction(initTx, connection);
-        await connection.confirmTransaction(initSignature, 'confirmed');
-        
-        // Add a delay to allow the RPC node to see the new account
-        await new Promise(resolve => setTimeout(resolve, 2000)); 
+          if (!creatorAccountPDA) {
+            throw new Error('Failed to derive creator account address.');
+          }
 
-        currentCreatorAccount = await program.account.creatorAccount.fetch(creatorAccountPDA);
-        setCreatorAccountData(currentCreatorAccount);
-        setStatus({ type: 'success', message: 'Creator account initialized. Adding content...' });
+          // Check if account already exists before trying to initialize
+          let accountExists = false;
+          try {
+            await program.account.creatorAccount.fetch(creatorAccountPDA);
+            accountExists = true;
+            console.log('Creator account already exists, skipping initialization');
+            currentCreatorAccount = await program.account.creatorAccount.fetch(creatorAccountPDA);
+            setCreatorAccountData(currentCreatorAccount);
+          } catch (fetchError: any) {
+            // Account doesn't exist, proceed with initialization
+          }
+
+          if (accountExists) {
+            // Account already exists, skip initialization
+            setStatus({ type: 'success', message: 'Creator account found. Adding content...' });
+          } else {
+            // Account doesn't exist, initialize it
+            console.log('Initializing creator account:', {
+              creator: publicKey.toBase58(),
+              creatorAccountPDA: creatorAccountPDA.toBase58(),
+              usePrivy: usePrivyTx,
+              programId: program.programId.toBase58(),
+              envProgramId: programId.toBase58(),
+            });
+
+            // Verify PDA derivation matches program expectations using program.programId
+            const [expectedPDA, expectedBump] = PublicKey.findProgramAddressSync(
+              [Buffer.from("creator"), publicKey.toBuffer()],
+              program.programId
+            );
+
+            if (!expectedPDA.equals(creatorAccountPDA)) {
+              throw new Error(`PDA mismatch: expected ${expectedPDA.toBase58()}, got ${creatorAccountPDA.toBase58()}. Program ID mismatch: program.programId=${program.programId.toBase58()}, env=${programId.toBase58()}`);
+            }
+
+            const initTx = new Transaction().add(
+              await program.methods
+                .initializeCreator()
+                .accounts({
+                  creatorAccount: creatorAccountPDA,
+                  creator: publicKey,
+                  systemProgram: SystemProgram.programId,
+                })
+                .instruction()
+            );
+          
+            // Use getLatestBlockhashAndContext for better blockhash management
+            const {
+              context: { slot: minContextSlot },
+              value: { blockhash, lastValidBlockHeight }
+            } = await connection.getLatestBlockhashAndContext('confirmed');
+            
+            initTx.recentBlockhash = blockhash;
+            initTx.feePayer = publicKey;
+
+            let initSignature: string;
+            if (usePrivyTx && sendSolanaTransaction) {
+              // Use Privy's sendSolanaTransaction
+              console.log('Sending transaction via Privy...');
+              try {
+                initSignature = await sendSolanaTransaction(initTx);
+                console.log('Privy transaction signature:', initSignature);
+              } catch (privyError: any) {
+                console.error('Privy transaction error:', privyError);
+                throw new Error(`Privy transaction failed: ${privyError.message || privyError.toString()}`);
+              }
+            } else {
+              // Use wallet adapter's sendTransaction
+              if (!sendTransaction) {
+                throw new Error('Wallet sendTransaction function not available. Please connect a wallet.');
+              }
+              if (!connected) {
+                throw new Error('Wallet not connected. Please connect your wallet first.');
+              }
+              console.log('Sending transaction via wallet adapter...');
+              
+              // Validate transaction before sending
+              const validation = validateTransaction(initTx);
+              if (!validation.valid) {
+                throw new Error(`Transaction validation failed: ${validation.error}`);
+              }
+
+              // Simulate transaction to catch errors early
+              try {
+                const simulation = await connection.simulateTransaction(initTx);
+                console.log('Init transaction simulation result:', {
+                  err: simulation.value.err,
+                  logs: simulation.value.logs,
+                  unitsConsumed: simulation.value.unitsConsumed,
+                });
+
+                if (simulation.value.err) {
+                  throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`);
+                }
+              } catch (simError: any) {
+                console.error('Init transaction simulation error:', simError);
+                throw new Error(`Transaction will fail: ${simError.message || 'Simulation error'}`);
+              }
+
+              // Context logging
+              console.log('Init transaction context:', {
+                endpoint: (connection as any).rpcEndpoint || 'unknown',
+                walletAdapter: wallet?.adapter?.name,
+                instructions: initTx.instructions.length,
+                feePayer: initTx.feePayer?.toBase58(),
+              });
+              
+              try {
+                initSignature = await sendTransaction(initTx, connection, {
+                  skipPreflight: false,
+                  maxRetries: 3,
+                });
+                console.log('Wallet adapter transaction signature:', initSignature);
+              } catch (walletError: any) {
+                // Log full error details for debugging
+                logWalletError(walletError, 'Wallet adapter transaction');
+                
+                // Get user-friendly error message
+                const errorMessage = getUserFriendlyErrorMessage(walletError);
+                throw new Error(errorMessage);
+              }
+            }
+            
+            console.log('Waiting for transaction confirmation...');
+            // Confirm with blockhash strategy for better reliability
+            await connection.confirmTransaction({
+              signature: initSignature,
+              blockhash,
+              lastValidBlockHeight
+            }, 'confirmed');
+            console.log('Transaction confirmed');
+            
+            // Add a delay to allow the RPC node to see the new account
+            await new Promise(resolve => setTimeout(resolve, 2000)); 
+
+            currentCreatorAccount = await program.account.creatorAccount.fetch(creatorAccountPDA);
+            setCreatorAccountData(currentCreatorAccount);
+            setStatus({ type: 'success', message: 'Creator account initialized. Adding content...' });
+          }
+        } catch (initError: any) {
+          console.error('Failed to initialize creator account:', {
+            error: initError,
+            message: initError.message,
+            stack: initError.stack,
+            publicKey: publicKey?.toBase58(),
+            creatorAccountPDA: creatorAccountPDA?.toBase58(),
+            usePrivy: usePrivyTx,
+            connected,
+          });
+          throw new Error(`Failed to initialize creator account: ${initError.message || 'Unknown error'}`);
+        }
       }
 
-      // 3. Build and send addContent transaction
+      // Step 3: Build and send addContent transaction
+      setStatus({ type: 'success', message: 'Publishing content on-chain...' });
       const priceBN = new anchor.BN(parseFloat(form.price) * anchor.web3.LAMPORTS_PER_SOL);
       const encryptedCidBuffer = Buffer.from(encryptedCid, 'hex');
 
-      const addContentTx = new Transaction().add(
-        await program.methods
-          .addContent(form.title, priceBN, encryptedCidBuffer)
-          .accounts({
-            creatorAccount: creatorAccountPDA,
-            creator: publicKey,
-          })
-          .instruction()
-      );
+      try {
+        if (!publicKey || !creatorAccountPDA) {
+          throw new Error('Wallet or creator account not available.');
+        }
 
-      const { blockhash: addContentBlockhash } = await connection.getLatestBlockhash();
-      addContentTx.recentBlockhash = addContentBlockhash;
-      addContentTx.feePayer = publicKey;
+        const addContentTx = new Transaction().add(
+          await program.methods
+            .addContent(form.title, priceBN, encryptedCidBuffer)
+            .accounts({
+              creatorAccount: creatorAccountPDA,
+              creator: publicKey,
+            })
+            .instruction()
+        );
 
-      const addContentSignature = await sendTransaction(addContentTx, connection);
-      await connection.confirmTransaction(addContentSignature, 'confirmed');
+        // Use getLatestBlockhashAndContext for better blockhash management
+        const {
+          context: { slot: addContentMinContextSlot },
+          value: { blockhash: addContentBlockhash, lastValidBlockHeight: addContentLastValidBlockHeight }
+        } = await connection.getLatestBlockhashAndContext('confirmed');
+        
+        addContentTx.recentBlockhash = addContentBlockhash;
+        addContentTx.feePayer = publicKey;
+
+        let addContentSignature: string;
+        if (usePrivyTx && sendSolanaTransaction) {
+          // Use Privy's sendSolanaTransaction
+          console.log('Sending addContent transaction via Privy...');
+          try {
+            addContentSignature = await sendSolanaTransaction(addContentTx);
+            console.log('AddContent transaction signature:', addContentSignature);
+          } catch (privyError: any) {
+            console.error('Privy addContent error:', privyError);
+            throw new Error(`Failed to publish content: ${privyError.message || privyError.toString()}`);
+          }
+        } else {
+          // Use wallet adapter's sendTransaction
+          if (!sendTransaction || !connected) {
+            throw new Error('Wallet not connected. Please connect your wallet first.');
+          }
+          console.log('Sending addContent transaction via wallet adapter...');
+          
+          // Validate transaction before sending
+          const addContentValidation = validateTransaction(addContentTx);
+          if (!addContentValidation.valid) {
+            throw new Error(`Transaction validation failed: ${addContentValidation.error}`);
+          }
+
+          // Simulate transaction to catch errors early
+          try {
+            const simulation = await connection.simulateTransaction(addContentTx);
+            console.log('addContent transaction simulation result:', {
+              err: simulation.value.err,
+              logs: simulation.value.logs,
+              unitsConsumed: simulation.value.unitsConsumed,
+            });
+
+            if (simulation.value.err) {
+              throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`);
+            }
+          } catch (simError: any) {
+            console.error('addContent transaction simulation error:', simError);
+            throw new Error(`Transaction will fail: ${simError.message || 'Simulation error'}`);
+          }
+
+          // Context logging
+          console.log('addContent transaction context:', {
+            endpoint: (connection as any).rpcEndpoint || 'unknown',
+            walletAdapter: wallet?.adapter?.name,
+            instructions: addContentTx.instructions.length,
+            feePayer: addContentTx.feePayer?.toBase58(),
+          });
+          
+          try {
+            addContentSignature = await sendTransaction(addContentTx, connection, {
+              skipPreflight: false,
+              maxRetries: 3,
+            });
+            console.log('AddContent transaction signature:', addContentSignature);
+          } catch (walletError: any) {
+            // Log full error details for debugging
+            logWalletError(walletError, 'Wallet adapter addContent');
+            
+            // Get user-friendly error message
+            const errorMessage = getUserFriendlyErrorMessage(walletError);
+            throw new Error(`Failed to publish content: ${errorMessage}`);
+          }
+        }
+        
+        // Confirm with blockhash strategy for better reliability
+        await connection.confirmTransaction({
+          signature: addContentSignature,
+          blockhash: addContentBlockhash,
+          lastValidBlockHeight: addContentLastValidBlockHeight
+        }, 'confirmed');
+      } catch (addContentError: any) {
+        console.error('Failed to add content:', {
+          error: addContentError,
+          message: addContentError.message,
+          stack: addContentError.stack,
+        });
+        throw new Error(`Failed to publish content: ${addContentError.message || 'Unknown error'}`);
+      }
 
       setStatus({
         type: 'success',
@@ -242,7 +676,8 @@ export default function CreatorWorkspace() {
       fetchCreatorContent();
     } catch (error: any) {
       console.error('Failed to create content:', error);
-      setStatus({ type: 'error', message: error.message || 'Something went wrong' });
+      const errorMessage = error?.message || error?.toString() || 'Something went wrong';
+      setStatus({ type: 'error', message: errorMessage });
     } finally {
       setLoading(false);
     }
@@ -286,9 +721,97 @@ export default function CreatorWorkspace() {
         </div>
 
         {/* Wallet Connection */}
-        <div className="flex justify-center mb-8">
+        <div className="flex flex-col items-center gap-4 mb-8">
+          {!isConnected && (
+            <div className="w-full max-w-md mb-4">
+              <SocialLogin 
+                onSuccess={(walletAddress) => {
+                  console.log('Wallet created:', walletAddress);
+                  // Refresh page or update state
+                  window.location.reload();
+                }}
+                onError={(error) => {
+                  setStatus({ type: 'error', message: error.message });
+                }}
+              />
+            </div>
+          )}
+          
+          {!isConnected && (
+            <div className="relative w-full max-w-md my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-4 bg-gradient-to-br from-gray-50 via-blue-50 to-purple-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800 text-gray-500 dark:text-gray-400">
+                  or connect existing wallet
+                </span>
+              </div>
+            </div>
+          )}
+          
           <WalletMultiButton className="!bg-gradient-to-r !from-blue-600 !to-purple-600 hover:!from-blue-700 hover:!to-purple-700 !rounded-xl !shadow-lg hover:!shadow-xl !transition-all !duration-200" />
+          
+          {/* Profile Badge */}
+          {isConnected && creatorProfile && (
+            <div className="flex items-center gap-3 bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-full px-4 py-2 shadow-md border border-gray-200/50 dark:border-gray-700/50">
+              {creatorProfile.avatarUrl ? (
+                <img 
+                  src={creatorProfile.avatarUrl} 
+                  alt="Avatar" 
+                  className="w-6 h-6 rounded-full object-cover"
+                />
+              ) : (
+                <User className="w-4 h-4 text-purple-600" />
+              )}
+              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {creatorProfile.displayName || (creatorProfile.username ? `@${creatorProfile.username}` : 'Creator')}
+              </span>
+              <div className="flex items-center gap-1">
+                {!creatorProfile.username && (
+                  <button
+                    onClick={() => setShowUsernameSetup(true)}
+                    className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  >
+                    Set username
+                  </button>
+                )}
+                <button
+                  onClick={() => setShowProfileEditor(true)}
+                  className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                  title="Edit profile"
+                >
+                  <Settings className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
+
+        {/* Username Setup Modal */}
+        {showUsernameSetup && isConnected && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <UsernameSetup
+              onUsernameSet={handleUsernameSet}
+              onSkip={handleSkipUsername}
+              existingUsername={creatorProfile?.username}
+            />
+          </div>
+        )}
+
+        {/* Profile Editor Modal */}
+        {showProfileEditor && isConnected && (
+          <CreatorProfile
+            onClose={() => setShowProfileEditor(false)}
+            onUpdate={handleProfileUpdate}
+            initialProfile={creatorProfile ? {
+              displayName: creatorProfile.displayName,
+              bio: creatorProfile.bio,
+              avatarUrl: creatorProfile.avatarUrl,
+              socialLinks: creatorProfile.socialLinks,
+            } : null}
+          />
+        )}
 
         {/* Status Messages */}
         {status.type && (
@@ -384,6 +907,7 @@ export default function CreatorWorkspace() {
                 </p>
                 <input
                   type="file"
+                  accept="image/*,.json,application/json,text/json,.png,.jpg,.jpeg,.gif,.webp,.svg,.pdf,.txt,.md"
                   onChange={(e) => setPrimaryFile(e.target.files?.[0] || null)}
                   className="items-center justify-center mt-2 w-full text-sm text-gray-600 dark:text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-blue-50 dark:file:bg-blue-900/20 file:text-blue-700 dark:file:text-blue-400 file:font-medium hover:file:bg-blue-100 dark:hover:file:bg-blue-900/30 file:cursor-pointer" />
               </div>
@@ -412,7 +936,7 @@ export default function CreatorWorkspace() {
 
             <button
               onClick={handleCreateContent}
-              disabled={loading || !connected}
+              disabled={loading || !isConnected}
               className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 py-4 text-white font-bold shadow-lg hover:shadow-xl hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2 text-lg"
             >
               {loading ? (
@@ -445,12 +969,36 @@ export default function CreatorWorkspace() {
               <div className="flex-1">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Your Published Drops</h2>
                 {creatorId && (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Share:{' '}
-                    <Link href={`/creators/${creatorId}`} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">
-                      /creators/{creatorId.slice(0, 8)}...
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-sm text-gray-500 dark:text-gray-400">Share:</span>
+                    <Link 
+                      href={creatorProfile?.username ? `/creators/${creatorProfile.username}` : `/creators/${creatorId}`} 
+                      className="text-blue-600 dark:text-blue-400 hover:underline font-medium text-sm"
+                    >
+                      {creatorProfile?.username 
+                        ? `/creators/${creatorProfile.username}` 
+                        : `/creators/${creatorId.slice(0, 8)}...`}
                     </Link>
-                  </p>
+                    <button
+                      onClick={copyShareLink}
+                      className="p-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      title="Copy link"
+                    >
+                      {copiedLink ? (
+                        <CheckCircle className="w-4 h-4 text-green-500" />
+                      ) : (
+                        <Copy className="w-4 h-4 text-gray-500" />
+                      )}
+                    </button>
+                    {!creatorProfile?.username && (
+                      <button
+                        onClick={() => setShowUsernameSetup(true)}
+                        className="text-xs text-purple-600 dark:text-purple-400 hover:underline ml-2"
+                      >
+                        Set username
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -509,7 +1057,7 @@ export default function CreatorWorkspace() {
               </div>
             ) : (
               <p className="text-sm text-gray-500">
-                {connected ? 'You have not published any drops yet.' : 'Connect your wallet to see your drops.'}
+                {isConnected ? 'You have not published any drops yet.' : 'Connect your wallet to see your drops.'}
               </p>
             )}
           </section>

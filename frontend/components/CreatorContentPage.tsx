@@ -1,7 +1,7 @@
 "use client"
 
 import { useParams } from 'next/navigation';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
@@ -9,9 +9,13 @@ import * as anchor from '@coral-xyz/anchor';
 import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { AutonProgram } from '@/lib/anchor/auton_program';
 import IDL from '@/lib/anchor/auton_program.json';
-import { ArrowLeft, Lock, CheckCircle, AlertCircle, Info, Zap, Image as ImageIcon, Video, Download } from 'lucide-react';
+import { ArrowLeft, Lock, CheckCircle, AlertCircle, Info, Zap, Image as ImageIcon, Video, Download, User, ExternalLink } from 'lucide-react';
+import PaymentModal from './PaymentModal';
+import { FeeBadge, FeeTooltip } from './FeeBreakdown';
+import { getUserFriendlyErrorMessage, logWalletError, validateTransaction } from '@/lib/transaction-utils';
 
 const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'http://127.0.0.1:8899';
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const AUTON_PROGRAM_ID = process.env.NEXT_PUBLIC_AUTON_PROGRAM_ID;
 const IPFS_GATEWAY_URL = 'https://ipfs.io/ipfs/';
 
@@ -41,19 +45,33 @@ type PaymentDetails = {
   contentId: number;
 };
 
+type CreatorProfile = {
+  id: string;
+  username: string | null;
+  displayName: string | null;
+  bio: string | null;
+  avatarUrl: string | null;
+  socialLinks: Record<string, string>;
+  walletAddress: string;
+};
+
 type CreatorContentPageProps = {
-    creatorId: string;
+    creatorId: string; // Can be either username or wallet address
 };
 
 export default function CreatorContentPage({ creatorId }: CreatorContentPageProps) {
   const { publicKey, connected, sendTransaction } = useWallet();
   const [creatorAccount, setCreatorAccount] = useState<CreatorAccountData | null>(null);
+  const [creatorProfile, setCreatorProfile] = useState<CreatorProfile | null>(null);
+  const [resolvedWalletAddress, setResolvedWalletAddress] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [decryptedCids, setDecryptedCids] = useState<Map<number, string>>(new Map());
   const [contentTypes, setContentTypes] = useState<Map<number, string>>(new Map());
   const [paymentProcessing, setPaymentProcessing] = useState<Map<number, boolean>>(new Map());
+  const [selectedContentForPayment, setSelectedContentForPayment] = useState<ContentItem | null>(null);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   const connection = useMemo(() => new Connection(SOLANA_RPC_URL, 'confirmed'), []);
   const provider = useMemo(() => {
@@ -70,19 +88,56 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
 
   const program = useMemo(() => {
     if (provider && programId) {
-      return new anchor.Program<AutonProgram>(IDL as AutonProgram, provider);
+      // Explicitly pass programId to ensure it matches environment variable
+      // This is critical for PDA derivation to work correctly
+      return new anchor.Program<AutonProgram>(IDL as AutonProgram, programId, provider);
     }
     return null;
-  }, [provider]);
+  }, [provider, programId]);
+
+  // Resolve creatorId - could be username or wallet address
+  const resolveCreator = useCallback(async () => {
+    if (!creatorId) return;
+    
+    try {
+      // First, try to resolve via the API (handles both username and wallet)
+      const response = await fetch(`${API_BASE_URL}/api/resolve/${encodeURIComponent(creatorId)}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        setCreatorProfile(data.creator);
+        setResolvedWalletAddress(data.creator.walletAddress || data.creator.id);
+      } else {
+        // If API fails, try using creatorId directly as a wallet address
+        try {
+          new PublicKey(creatorId); // Validate it's a valid public key
+          setResolvedWalletAddress(creatorId);
+        } catch {
+          setError('Creator not found. Please check the URL.');
+          setLoading(false);
+        }
+      }
+    } catch (err) {
+      console.error('Error resolving creator:', err);
+      // Fallback: try using creatorId directly
+      try {
+        new PublicKey(creatorId);
+        setResolvedWalletAddress(creatorId);
+      } catch {
+        setError('Creator not found. Please check the URL.');
+        setLoading(false);
+      }
+    }
+  }, [creatorId]);
 
   const creatorPubkey = useMemo(() => {
-    if (!creatorId) return null;
+    if (!resolvedWalletAddress) return null;
     try {
-      return new PublicKey(creatorId);
+      return new PublicKey(resolvedWalletAddress);
     } catch {
       return null;
     }
-  }, [creatorId]);
+  }, [resolvedWalletAddress]);
 
   const creatorAccountPDA = useMemo(() => {
     if (!creatorPubkey || !programId) return null;
@@ -93,11 +148,17 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
     return pda;
   }, [creatorPubkey]);
 
+  // First resolve the creator
   useEffect(() => {
-    if (program && creatorAccountPDA) {
+    resolveCreator();
+  }, [resolveCreator]);
+
+  // Then fetch content once we have the resolved wallet address
+  useEffect(() => {
+    if (program && creatorAccountPDA && resolvedWalletAddress) {
       fetchCreatorContent();
     }
-  }, [program, creatorAccountPDA]);
+  }, [program, creatorAccountPDA, resolvedWalletAddress]);
 
   const fetchCreatorContent = async () => {
     if (!program || !creatorAccountPDA) return;
@@ -170,12 +231,93 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
         
         const transaction = new Transaction().add(ix);
 
-        const { blockhash } = await connection.getLatestBlockhash();
+        // Use getLatestBlockhashAndContext for better blockhash management
+        const {
+          context: { slot: minContextSlot },
+          value: { blockhash, lastValidBlockHeight }
+        } = await connection.getLatestBlockhashAndContext('confirmed');
+        
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = publicKey;
 
-        const signature = await sendTransaction(transaction, connection);
-        await connection.confirmTransaction(signature, 'confirmed');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:242',message:'Transaction built before validation',data:{hasBlockhash:!!blockhash,hasFeePayer:!!transaction.feePayer,instructionCount:transaction.instructions.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+
+        // Validate transaction before sending
+        const validation = validateTransaction(transaction);
+        if (!validation.valid) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:247',message:'Transaction validation failed',data:{error:validation.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          throw new Error(`Transaction validation failed: ${validation.error}`);
+        }
+
+        // Simulate transaction to catch errors early
+        try {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:252',message:'Simulating transaction',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
+          const simulation = await connection.simulateTransaction(transaction);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:255',message:'Simulation result',data:{err:simulation.value.err,unitsConsumed:simulation.value.unitsConsumed,logs:simulation.value.logs?.slice(0,3)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
+
+          if (simulation.value.err) {
+            throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`);
+          }
+        } catch (simError: any) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:262',message:'Simulation error',data:{error:simError?.message,errorName:simError?.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+          // #endregion
+          console.error('Payment transaction simulation error:', simError);
+          throw new Error(`Transaction will fail: ${simError.message || 'Simulation error'}`);
+        }
+
+        // Context logging
+        console.log('Payment transaction context:', {
+          endpoint: (connection as any).rpcEndpoint || 'unknown',
+          instructions: transaction.instructions.length,
+          feePayer: transaction.feePayer?.toBase58(),
+        });
+
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:273',message:'Sending transaction',data:{endpoint:(connection as any).rpcEndpoint||'unknown'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
+
+        let signature: string;
+        try {
+          signature = await sendTransaction(transaction, connection, {
+            skipPreflight: false,
+            maxRetries: 3,
+          });
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:280',message:'Transaction sent successfully',data:{signature:signature.slice(0,16)+'...'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+        } catch (walletError: any) {
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:283',message:'Transaction send error',data:{errorName:walletError?.name,errorMessage:walletError?.message,hasError:!!walletError?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          // #endregion
+          // Log full error details for debugging
+          logWalletError(walletError, 'Payment transaction');
+          
+          // Get user-friendly error message
+          const errorMessage = getUserFriendlyErrorMessage(walletError);
+          throw new Error(errorMessage);
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:293',message:'Confirming transaction',data:{signature:signature.slice(0,16)+'...'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
+        // Confirm with blockhash strategy for better reliability
+        await connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight
+        }, 'confirmed');
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:300',message:'Transaction confirmed',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
+        // #endregion
 
         setSuccess('Payment confirmed! Retrieving content...');
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -190,8 +332,13 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
         throw new Error(errData.error || 'Failed to get access.');
       }
     } catch (err: any) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:313',message:'Error caught in handleUnlockContent',data:{errorName:err?.name,errorMessage:err?.message,hasError:!!err?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
+      // #endregion
       console.error('Unlock content error:', err);
-      setError(err.message || 'Failed to unlock content.');
+      // Use enhanced error extraction for better error messages
+      const errorMessage = err?.message || getUserFriendlyErrorMessage(err) || 'Failed to unlock content.';
+      setError(errorMessage);
     } finally {
       setPaymentProcessing(prev => new Map(prev).set(contentItem.id.toNumber(), false));
     }
@@ -316,19 +463,91 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
         {/* Creator Info Card */}
         <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-xl p-8 mb-8 border border-gray-200/50 dark:border-gray-700/50">
           <div className="flex items-start justify-between flex-wrap gap-4">
-            <div>
-              <p className="text-4xl font-bold text-gray-600 dark:text-gray-300 flex items-center gap-2">
-                Creator: 
-                <code className="bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-lg font-mono text-2xl">
-                  {creatorPubkey.toBase58().slice(0, 8)}...{creatorPubkey.toBase58().slice(-8)}
-                </code>
-              </p>
+            <div className="space-y-3">
+              {/* Username/Display Name */}
+              {creatorProfile?.username ? (
+                <div className="flex items-center gap-3">
+                  {creatorProfile.avatarUrl ? (
+                    <img 
+                      src={creatorProfile.avatarUrl} 
+                      alt={creatorProfile.displayName || creatorProfile.username}
+                      className="w-16 h-16 rounded-full object-cover border-2 border-purple-200 dark:border-purple-700"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
+                      <User className="w-8 h-8 text-white" />
+                    </div>
+                  )}
+                  <div>
+                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
+                      {creatorProfile.displayName || `@${creatorProfile.username}`}
+                    </h1>
+                    {creatorProfile.displayName && (
+                      <p className="text-purple-600 dark:text-purple-400 font-medium">
+                        @{creatorProfile.username}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-2xl font-bold text-gray-600 dark:text-gray-300 flex items-center gap-2">
+                  Creator: 
+                  <code className="bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-lg font-mono text-xl">
+                    {creatorPubkey?.toBase58().slice(0, 8)}...{creatorPubkey?.toBase58().slice(-8)}
+                  </code>
+                </p>
+              )}
+              
+              {/* Bio */}
+              {creatorProfile?.bio && (
+                <p className="text-gray-600 dark:text-gray-400 max-w-2xl">
+                  {creatorProfile.bio}
+                </p>
+              )}
+
+              {/* Social Links */}
+              {creatorProfile?.socialLinks && Object.keys(creatorProfile.socialLinks).length > 0 && (
+                <div className="flex items-center gap-3 pt-2">
+                  {Object.entries(creatorProfile.socialLinks).map(([platform, url]) => (
+                    <a
+                      key={platform}
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                    >
+                      {platform}
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
+            
             <div className="flex items-center gap-2 bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 px-4 py-2 rounded-full">
               <Zap className="w-4 h-4 text-purple-600 dark:text-purple-400" />
               <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
                 {creatorAccount.content.length} items available
               </span>
+            </div>
+          </div>
+        </div>
+
+        {/* What is Auton - For first-time visitors */}
+        <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 backdrop-blur-sm rounded-xl border border-purple-200 dark:border-purple-800 p-6 mb-8">
+          <div className="flex items-start gap-4">
+            <div className="p-3 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
+              <Zap className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h3 className="font-bold text-purple-900 dark:text-purple-100 mb-2 text-lg">What is Auton?</h3>
+              <p className="text-sm text-purple-800 dark:text-purple-200 leading-relaxed mb-3">
+                Auton is a decentralized platform for creators to share encrypted content. 
+                Pay once with Solana to unlock files permanently. Funds go directly to the creator.
+              </p>
+              <p className="text-xs text-purple-600 dark:text-purple-400">
+                Powered by x402 protocol • Instant payments • No middlemen
+              </p>
             </div>
           </div>
         </div>
@@ -413,26 +632,29 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
                   {/* Price and Creator */}
                   <div className="space-y-3">
                     <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold text-white bg-clip-text text-transparent">
-                        {item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL}
+                      <span className="text-3xl font-bold text-purple-600 dark:text-purple-400">
+                        ◎ {(item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL).toFixed(3)}
                       </span>
                       <span className="text-lg font-semibold text-gray-600 dark:text-gray-400">SOL</span>
                     </div>
                     
-                    <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                      <span>Direct to creator</span>
-                      <code className="bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded font-mono">
-                        {creatorAccount.creatorWallet.toBase58().slice(0, 4)}...
-                        {creatorAccount.creatorWallet.toBase58().slice(-4)}
-                      </code>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                        <span>Direct to creator</span>
+                      </div>
+                      <FeeBadge />
                     </div>
                   </div>
 
                   {/* Action Button */}
                   {!isUnlocked && (
                     <button
-                      onClick={() => handleUnlockContent(item)}
+                      onClick={() => {
+                        if (!connected) return;
+                        setSelectedContentForPayment(item);
+                        setShowPaymentModal(true);
+                      }}
                       disabled={!connected || isProcessing}
                       className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 py-3 text-white font-semibold hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
                     >
@@ -449,7 +671,7 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
                       ) : (
                         <>
                           <Zap className="w-4 h-4" />
-                          Unlock for {item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL} SOL
+                          Unlock for ◎ {(item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL).toFixed(3)}
                         </>
                       )}
                     </button>
@@ -459,6 +681,26 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
             );
           })}
         </div>
+
+        {/* Payment Modal */}
+        {selectedContentForPayment && creatorPubkey && (
+          <PaymentModal
+            isOpen={showPaymentModal}
+            onClose={() => {
+              setShowPaymentModal(false);
+              setSelectedContentForPayment(null);
+            }}
+            onConfirm={async () => {
+              await handleUnlockContent(selectedContentForPayment);
+              setShowPaymentModal(false);
+              setSelectedContentForPayment(null);
+            }}
+            contentTitle={selectedContentForPayment.title}
+            priceInSol={selectedContentForPayment.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL}
+            creatorUsername={creatorProfile?.username}
+            creatorWallet={creatorPubkey.toBase58()}
+          />
+        )}
       </div>
     </div>
   );

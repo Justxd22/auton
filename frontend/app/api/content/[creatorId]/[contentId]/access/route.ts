@@ -59,7 +59,8 @@ export async function GET(
     }, {
       commitment: 'confirmed',
     });
-    const program = new anchor.Program<AutonProgram>(IDL as AutonProgram, provider);
+    // Explicitly pass programId to ensure it matches environment variable
+    const program = new anchor.Program<AutonProgram>(IDL as AutonProgram, programId, provider);
 
     // 1. Check for PaidAccessAccount (receipt)
     const [paidAccessPDA] = PublicKey.findProgramAddressSync(
@@ -68,7 +69,7 @@ export async function GET(
         buyerPubkey.toBuffer(),
         new anchor.BN(contentIdNum).toArrayLike(Buffer, "le", 8),
       ],
-      program.programId
+      programId
     );
 
     let hasAccess = false;
@@ -86,7 +87,7 @@ export async function GET(
         Buffer.from("creator"),
         creatorPubkey.toBuffer()
       ],
-      program.programId
+      programId
     );
     const creatorAccount = await program.account.creatorAccount.fetch(creatorAccountPDA);
     const contentItem = creatorAccount.content.find(item => item.id.toNumber() === contentIdNum);
