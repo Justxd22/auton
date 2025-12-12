@@ -458,4 +458,42 @@ describe("auton_program", () => {
         console.log("   - ✓ Relayed transaction successful!");
     });
   });
+
+  describe("Protocol Management", () => {
+    it("Allows admin to update fee percentage", async () => {
+      const NEW_FEE_BPS = new anchor.BN(800); // Change to 8%
+
+      await program.methods
+        .updateConfig(null, NEW_FEE_BPS)
+        .accounts({
+          protocolConfig: configPDA,
+          admin: admin.publicKey,
+        })
+        .signers([admin])
+        .rpc();
+
+      const config = await program.account.protocolConfig.fetch(configPDA);
+      assert.ok(config.feePercentage.eq(NEW_FEE_BPS));
+    });
+
+    it("Prevents unauthorized users from updating config", async () => {
+      const MALICIOUS_FEE = new anchor.BN(0); // Try to set fee to 0%
+
+      try {
+        await program.methods
+          .updateConfig(null, MALICIOUS_FEE)
+          .accounts({
+            protocolConfig: configPDA,
+            admin: buyer.publicKey, // Buyer tries to sign as admin
+          })
+          .signers([buyer])
+          .rpc();
+        assert.fail("Should have failed with Unauthorized");
+      } catch (err) {
+        assert.isTrue(err instanceof anchor.AnchorError);
+        const anchorError = err as anchor.AnchorError;
+        assert.equal(anchorError.error.errorCode.code, "Unauthorized");
+      }
+    });
+  });
 });

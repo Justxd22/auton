@@ -3,7 +3,8 @@ use anchor_lang::prelude::*;
 // This is the program's on-chain ID.
 // It will be replaced with the real Program ID after deployment.
 declare_id!("9Dpgf1nWom5Psp6vwLs1J6WF7dVbySQwk8HhLSqXx62n");
-const MAX_PLATFORM_FEE_BPS: u64 = 500; // Max 5% fee (500 basis points)
+// CONSTANTS
+const MAX_PLATFORM_FEE_BPS: u64 = 10000; // Max 100% fee (10000 basis points)
 
 #[program]
 pub mod auton_program {
