@@ -1,21 +1,18 @@
-"use client"
+'use client';
 
-import { useParams } from 'next/navigation';
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import * as anchor from '@coral-xyz/anchor';
-import { Connection, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { AutonProgram } from '@/lib/anchor/auton_program';
 import IDL from '@/lib/anchor/auton_program.json';
-import { ArrowLeft, Lock, CheckCircle, AlertCircle, Info, Zap, Image as ImageIcon, Video, Download, User, ExternalLink } from 'lucide-react';
+import { ArrowLeft, Lock, CheckCircle, AlertCircle, Info, Zap, User, ExternalLink, Download } from 'lucide-react';
 import PaymentModal from './PaymentModal';
-import { FeeBadge, FeeTooltip } from './FeeBreakdown';
+import { FeeBadge } from './FeeBreakdown';
 import { getUserFriendlyErrorMessage, logWalletError, validateTransaction } from '@/lib/transaction-utils';
 
-const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'http://127.0.0.1:8899';
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 const AUTON_PROGRAM_ID = process.env.NEXT_PUBLIC_AUTON_PROGRAM_ID;
 const IPFS_GATEWAY_URL = 'https://ipfs.io/ipfs/';
 
@@ -61,9 +58,12 @@ type CreatorContentPageProps = {
 
 export default function CreatorContentPage({ creatorId }: CreatorContentPageProps) {
   const { publicKey, connected, sendTransaction } = useWallet();
+  const { connection } = useConnection();
+  
   const [creatorAccount, setCreatorAccount] = useState<CreatorAccountData | null>(null);
   const [creatorProfile, setCreatorProfile] = useState<CreatorProfile | null>(null);
   const [resolvedWalletAddress, setResolvedWalletAddress] = useState<string | null>(null);
+  const [isUsername, setIsUsername] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -73,7 +73,13 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
   const [selectedContentForPayment, setSelectedContentForPayment] = useState<ContentItem | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
 
-  const connection = useMemo(() => new Connection(SOLANA_RPC_URL, 'confirmed'), []);
+  // Log connection endpoint for debugging
+  useEffect(() => {
+    if (connection) {
+      console.log('Using connection endpoint:', (connection as any).rpcEndpoint || 'default');
+    }
+  }, [connection]);
+
   const provider = useMemo(() => {
     // Create a dummy wallet for read-only operations
     const dummyWallet = {
@@ -87,48 +93,53 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
   }, [connection]);
 
   const program = useMemo(() => {
-    if (provider && programId) {
-      // Explicitly pass programId to ensure it matches environment variable
-      // This is critical for PDA derivation to work correctly
-      return new anchor.Program<AutonProgram>(IDL as AutonProgram, programId, provider);
+    if (provider) {
+        const idl = IDL as anchor.Idl;
+        return new anchor.Program(idl, provider) as anchor.Program<AutonProgram>;
     }
     return null;
-  }, [provider, programId]);
+  }, [provider]);
 
-  // Resolve creatorId - could be username or wallet address
+  // Resolve creatorId (Username -> Wallet or Wallet -> Wallet)
   const resolveCreator = useCallback(async () => {
-    if (!creatorId) return;
-    
+    if (!creatorId || !program) return;
+    setLoading(true);
+    setError('');
+
     try {
-      // First, try to resolve via the API (handles both username and wallet)
-      const response = await fetch(`${API_BASE_URL}/api/resolve/${encodeURIComponent(creatorId)}`);
-      
-      if (response.ok) {
-        const data = await response.json();
-        setCreatorProfile(data.creator);
-        setResolvedWalletAddress(data.creator.walletAddress || data.creator.id);
-      } else {
-        // If API fails, try using creatorId directly as a wallet address
-        try {
-          new PublicKey(creatorId); // Validate it's a valid public key
-          setResolvedWalletAddress(creatorId);
-        } catch {
-          setError('Creator not found. Please check the URL.');
-          setLoading(false);
-        }
+      // 1. Try as PublicKey first
+      try {
+        const pubkey = new PublicKey(creatorId);
+        setResolvedWalletAddress(pubkey.toBase58());
+        setIsUsername(false);
+        return; // It's a valid key, proceed
+      } catch {
+        // Not a public key, treat as username
+      }
+
+      // 2. Treat as Username: Fetch UsernameAccount PDA
+      setIsUsername(true);
+      const [usernamePDA] = PublicKey.findProgramAddressSync(
+        [Buffer.from("username"), Buffer.from(creatorId)],
+        program.programId
+      );
+
+      try {
+        const usernameAccount = await program.account.usernameAccount.fetch(usernamePDA);
+        setResolvedWalletAddress(usernameAccount.authority.toBase58());
+      } catch (err) {
+        console.error("Username lookup failed:", err);
+        setError(`Creator @${creatorId} not found.`);
+        setResolvedWalletAddress(null);
       }
     } catch (err) {
       console.error('Error resolving creator:', err);
-      // Fallback: try using creatorId directly
-      try {
-        new PublicKey(creatorId);
-        setResolvedWalletAddress(creatorId);
-      } catch {
-        setError('Creator not found. Please check the URL.');
-        setLoading(false);
-      }
+      setError('Failed to resolve creator.');
+    } finally {
+        // Only set loading false if we failed. If success, fetchCreatorContent will handle loading state.
+        if (!resolvedWalletAddress) setLoading(false); 
     }
-  }, [creatorId]);
+  }, [creatorId, program]);
 
   const creatorPubkey = useMemo(() => {
     if (!resolvedWalletAddress) return null;
@@ -143,17 +154,17 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
     if (!creatorPubkey || !programId) return null;
     const [pda] = PublicKey.findProgramAddressSync(
       [Buffer.from("creator"), creatorPubkey.toBuffer()],
-      programId
+      program.programId
     );
     return pda;
-  }, [creatorPubkey]);
+  }, [creatorPubkey, programId]);
 
-  // First resolve the creator
+  // Trigger resolution
   useEffect(() => {
     resolveCreator();
   }, [resolveCreator]);
 
-  // Then fetch content once we have the resolved wallet address
+  // Fetch content once resolved
   useEffect(() => {
     if (program && creatorAccountPDA && resolvedWalletAddress) {
       fetchCreatorContent();
@@ -169,7 +180,12 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
       setCreatorAccount(account);
     } catch (err: any) {
       console.error('Failed to fetch creator account:', err);
-      setError('Creator account not found or failed to load content.');
+      const msg = err.message || err.toString();
+      if (msg.includes("Account does not exist")) {
+         setError('This creator has not initialized their account yet.');
+      } else {
+         setError('Failed to load content.');
+      }
       setCreatorAccount(null);
     } finally {
       setLoading(false);
@@ -202,13 +218,24 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
     setSuccess('');
 
     try {
+      // 1. Check Access via API (Decrypts if valid receipt exists)
       const accessResponse = await fetch(
-        `/api/content/${creatorPubkey.toBase58()}/${contentItem.id.toNumber()}/access?buyerPubkey=${publicKey.toBase58()}`
+        `/api/content/${creatorPubkey!.toBase58()}/${contentItem.id.toNumber()}/access?buyerPubkey=${publicKey.toBase58()}`
       );
 
       if (accessResponse.status === 402) {
-        const { paymentDetails }: { paymentDetails: PaymentDetails } = await accessResponse.json();
+        // 2. Payment Required: Build Transaction
+        console.log("Payment required. Building transaction...");
+        
+        // Fetch Protocol Config to get Admin Wallet
+        const [configPDA] = PublicKey.findProgramAddressSync(
+            [Buffer.from("config")],
+            program.programId
+        );
+        const protocolConfig = await program.account.protocolConfig.fetch(configPDA);
+        const adminWallet = protocolConfig.adminWallet;
 
+        // Derive Receipt PDA
         const [paidAccessPDA] = PublicKey.findProgramAddressSync(
           [
             Buffer.from("access"),
@@ -218,125 +245,59 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
           program.programId
         );
 
+        // Build Instruction
         const ix = await program.methods
           .processPayment(new anchor.BN(contentItem.id.toNumber()))
           .accounts({
             paidAccessAccount: paidAccessPDA,
-            creatorAccount: creatorAccountPDA,
-            creatorWallet: new PublicKey(paymentDetails.creatorWalletAddress),
+            protocolConfig: configPDA,
+            creatorAccount: creatorAccountPDA!,
+            creatorWallet: creatorPubkey!,
+            adminWallet: adminWallet,
             buyer: publicKey,
             systemProgram: SystemProgram.programId,
           })
           .instruction();
         
         const transaction = new Transaction().add(ix);
-
-        // Use getLatestBlockhashAndContext for better blockhash management
-        const {
-          context: { slot: minContextSlot },
-          value: { blockhash, lastValidBlockHeight }
-        } = await connection.getLatestBlockhashAndContext('confirmed');
-        
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = publicKey;
 
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:242',message:'Transaction built before validation',data:{hasBlockhash:!!blockhash,hasFeePayer:!!transaction.feePayer,instructionCount:transaction.instructions.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
-
-        // Validate transaction before sending
+        // Validate
         const validation = validateTransaction(transaction);
-        if (!validation.valid) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:247',message:'Transaction validation failed',data:{error:validation.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
-          throw new Error(`Transaction validation failed: ${validation.error}`);
-        }
+        if (!validation.valid) throw new Error(`Transaction validation failed: ${validation.error}`);
 
-        // Simulate transaction to catch errors early
-        try {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:252',message:'Simulating transaction',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
-          const simulation = await connection.simulateTransaction(transaction);
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:255',message:'Simulation result',data:{err:simulation.value.err,unitsConsumed:simulation.value.unitsConsumed,logs:simulation.value.logs?.slice(0,3)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
-
-          if (simulation.value.err) {
-            throw new Error(`Transaction simulation failed: ${JSON.stringify(simulation.value.err)}`);
-          }
-        } catch (simError: any) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:262',message:'Simulation error',data:{error:simError?.message,errorName:simError?.name},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-          // #endregion
-          console.error('Payment transaction simulation error:', simError);
-          throw new Error(`Transaction will fail: ${simError.message || 'Simulation error'}`);
-        }
-
-        // Context logging
-        console.log('Payment transaction context:', {
-          endpoint: (connection as any).rpcEndpoint || 'unknown',
-          instructions: transaction.instructions.length,
-          feePayer: transaction.feePayer?.toBase58(),
-        });
-
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:273',message:'Sending transaction',data:{endpoint:(connection as any).rpcEndpoint||'unknown'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
-
+        // Send
         let signature: string;
         try {
-          signature = await sendTransaction(transaction, connection, {
-            skipPreflight: false,
-            maxRetries: 3,
-          });
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:280',message:'Transaction sent successfully',data:{signature:signature.slice(0,16)+'...'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
+            signature = await sendTransaction(transaction, connection);
         } catch (walletError: any) {
-          // #region agent log
-          fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:283',message:'Transaction send error',data:{errorName:walletError?.name,errorMessage:walletError?.message,hasError:!!walletError?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          // #endregion
-          // Log full error details for debugging
-          logWalletError(walletError, 'Payment transaction');
-          
-          // Get user-friendly error message
-          const errorMessage = getUserFriendlyErrorMessage(walletError);
-          throw new Error(errorMessage);
+            logWalletError(walletError, 'Payment transaction');
+            throw new Error(getUserFriendlyErrorMessage(walletError));
         }
-        
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:293',message:'Confirming transaction',data:{signature:signature.slice(0,16)+'...'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
-        // Confirm with blockhash strategy for better reliability
-        await connection.confirmTransaction({
-          signature,
-          blockhash,
-          lastValidBlockHeight
-        }, 'confirmed');
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:300',message:'Transaction confirmed',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'G'})}).catch(()=>{});
-        // #endregion
 
+        console.log("Payment sent:", signature);
+        await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, 'confirmed');
+        
         setSuccess('Payment confirmed! Retrieving content...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        await handleUnlockContent(contentItem);
+        
+        // 3. Retry Access Request (Now that receipt exists)
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for RPC sync
+        await handleUnlockContent(contentItem); // Recursive call
+
       } else if (accessResponse.ok) {
+        // 4. Access Granted
         const { ipfsCid }: { ipfsCid: string } = await accessResponse.json();
         setDecryptedCids(prev => new Map(prev).set(contentItem.id.toNumber(), ipfsCid));
-        setSuccess('Content unlocked! Determining content type...');
+        setSuccess('Content unlocked!');
         await fetchContentType(contentItem, ipfsCid);
       } else {
         const errData = await accessResponse.json();
         throw new Error(errData.error || 'Failed to get access.');
       }
     } catch (err: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'CreatorContentPage.tsx:313',message:'Error caught in handleUnlockContent',data:{errorName:err?.name,errorMessage:err?.message,hasError:!!err?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H'})}).catch(()=>{});
-      // #endregion
       console.error('Unlock content error:', err);
-      // Use enhanced error extraction for better error messages
       const errorMessage = err?.message || getUserFriendlyErrorMessage(err) || 'Failed to unlock content.';
       setError(errorMessage);
     } finally {
@@ -697,7 +658,7 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
             }}
             contentTitle={selectedContentForPayment.title}
             priceInSol={selectedContentForPayment.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL}
-            creatorUsername={creatorProfile?.username}
+            creatorUsername={isUsername ? creatorId : null}
             creatorWallet={creatorPubkey.toBase58()}
           />
         )}
