@@ -34,22 +34,13 @@ export default function PaymentModal({
   if (!isOpen) return null;
 
   const handleConfirm = async () => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PaymentModal.tsx:35',message:'Payment confirmation started',data:{contentTitle,priceInSol},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
-    // #endregion
     setState('processing');
     setError(null);
     
     try {
       await onConfirm();
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PaymentModal.tsx:42',message:'Payment confirmed successfully',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
-      // #endregion
       setState('success');
     } catch (err: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'PaymentModal.tsx:45',message:'Payment error caught',data:{errorName:err?.name,errorMessage:err?.message,hasError:!!err?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'J'})}).catch(()=>{});
-      // #endregion
       console.error('Payment error:', err);
       // Use enhanced error extraction for better error messages
       logWalletError(err, 'PaymentModal');
