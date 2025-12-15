@@ -516,7 +516,7 @@ export default function CreatorWorkspace() {
   // 2. DASHBOARD VIEW (Authenticated)
   // ------------------------------------------------------------------
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <DashboardNav
         activeTab={activeTab}
         onTabChange={setActiveTab}

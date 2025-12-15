@@ -46,8 +46,7 @@ body {
   font-family: var(--font-geist-sans), sans-serif;
   
   /* Dither Pattern Background */
-  background-image: 
-    radial-gradient(circle, #1a1a1a 1px, transparent 1px);
+  background-image: radial-gradient(circle, #3f3f3f 1px, transparent 1px);
   background-size: 24px 24px;
 }
 
