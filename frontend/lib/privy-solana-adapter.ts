@@ -102,20 +102,11 @@ export function usePrivySendTransaction() {
   }
 
   return async (transaction: Transaction | VersionedTransaction) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'privy-solana-adapter.ts:104',message:'Privy sendTransaction entry',data:{authenticated,hasSendSolanaTransaction:!!sendSolanaTransaction},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
-    // #endregion
     try {
       // Privy's sendSolanaTransaction handles signing and sending
       const signature = await sendSolanaTransaction(transaction);
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'privy-solana-adapter.ts:109',message:'Privy transaction sent',data:{signature:signature?.slice(0,16)+'...'},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
       return signature;
     } catch (error: any) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/39902392-c8fd-40d3-b276-feb5e8deb670',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'privy-solana-adapter.ts:113',message:'Privy transaction error',data:{errorName:error?.name,errorMessage:error?.message,hasError:!!error?.error},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'I'})}).catch(()=>{});
-      // #endregion
       console.error('Error sending transaction with Privy:', error);
       throw error;
     }
@@ -142,4 +133,3 @@ export function useHasPrivyWallet(): boolean {
     return false;
   }
 }
-

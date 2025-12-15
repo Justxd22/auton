@@ -1,16 +1,54 @@
 use anchor_lang::prelude::*;
 
-// Import vault governance program for CPI
-use vault_governance::VaultState;
-use vault_governance::program::VaultGovernance;
-
 // This is the program's on-chain ID.
 // It will be replaced with the real Program ID after deployment.
-declare_id!("CP4u2AjZeWdjjhxuGUsWLFAqyzGLu8cUU3xdeDnzkqyk");
+declare_id!("9Dpgf1nWom5Psp6vwLs1J6WF7dVbySQwk8HhLSqXx62n");
+// CONSTANTS
+const MAX_PLATFORM_FEE_BPS: u64 = 10000; // Max 100% fee (10000 basis points)
 
 #[program]
 pub mod auton_program {
     use super::*;
+
+    // Initialize the protocol's global configuration
+    pub fn initialize_config(
+        ctx: Context<InitializeConfig>,
+        initial_fee_percentage: u64,
+    ) -> Result<()> {
+        require!(
+            initial_fee_percentage <= MAX_PLATFORM_FEE_BPS,
+            CustomError::InvalidFeePercentage
+        );
+
+        let config = &mut ctx.accounts.protocol_config;
+        config.admin_wallet = *ctx.accounts.admin.key;
+        config.fee_percentage = initial_fee_percentage;
+        Ok(())
+    }
+
+    // Update the protocol's global configuration
+    pub fn update_config(
+        ctx: Context<UpdateConfig>,
+        new_admin_wallet: Option<Pubkey>,
+        new_fee_percentage: Option<u64>,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.protocol_config;
+
+        // Only the current admin can update
+        require!(
+            config.admin_wallet == *ctx.accounts.admin.key,
+            CustomError::Unauthorized
+        );
+
+        if let Some(admin_wallet) = new_admin_wallet {
+            config.admin_wallet = admin_wallet;
+        }
+        if let Some(fee_percentage) = new_fee_percentage {
+            require!(fee_percentage <= MAX_PLATFORM_FEE_BPS, CustomError::InvalidFeePercentage);
+            config.fee_percentage = fee_percentage;
+        }
+        Ok(())
+    }
 
     // NEW: Registers a username for a creator
     // This creates a PDA that maps a username to a wallet address
@@ -65,52 +103,50 @@ pub mod auton_program {
         Ok(())
     }
 
+    // Updates the creator's profile metadata CID
+    pub fn update_profile(ctx: Context<UpdateProfile>, profile_cid: String) -> Result<()> {
+        let creator_account = &mut ctx.accounts.creator_account;
+        require!(creator_account.creator_wallet == *ctx.accounts.creator.key, CustomError::Unauthorized);
+        creator_account.profile_cid = profile_cid;
+        Ok(())
+    }
+
     // Records that a user has paid for a specific piece of content.
-    // This transfers SOL from buyer to creator, collects platform fees to vault, and creates an access receipt.
+    // This transfers SOL from buyer to creator (minus fee) and admin (fee), then creates an access receipt.
     pub fn process_payment(ctx: Context<ProcessPayment>, content_id: u64) -> Result<()> {
         let creator_account = &ctx.accounts.creator_account;
+        let config = &ctx.accounts.protocol_config;
 
         // Find the content item by its ID. This is much more efficient than hashing.
         let content_item = creator_account.content.iter().find(|item| {
             item.id == content_id
         }).ok_or(CustomError::ContentNotFound)?;
 
-        let amount_to_pay = content_item.price;
+        let total_price = content_item.price;
+        let fee_amount = (total_price * config.fee_percentage) / 10000; // 10000 = 100% in basis points
+        let creator_amount = total_price - fee_amount;
 
-        // Get vault state to calculate fee percentage
-        let vault_state = &ctx.accounts.vault_state;
-        let fee_percentage = vault_state.fee_percentage; // Basis points (10000 = 100%)
-        let platform_fee = (amount_to_pay * fee_percentage) / 10000;
-        let creator_amount = amount_to_pay - platform_fee;
-
-        // Transfer platform fee to vault via CPI
-        // Note: After building with Anchor, use the generated CPI module:
-        // use vault_governance::cpi::accounts::CollectFees;
-        // vault_governance::cpi::collect_fees(collect_fees_ctx, amount_to_pay)?;
-        
-        // For now, calculate and transfer fee directly
-        // TODO: Replace with CPI call after building and generating IDL
-        let fee_amount = platform_fee;
-        
-        // Transfer fee from buyer to vault wallet
-        let fee_transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
-            &ctx.accounts.buyer.key(),
-            &ctx.accounts.vault_wallet.key(),
-            fee_amount,
-        );
-        
-        anchor_lang::solana_program::program::invoke(
-            &fee_transfer_ix,
-            &[
-                ctx.accounts.buyer.to_account_info(),
-                ctx.accounts.vault_wallet.to_account_info(),
-                ctx.accounts.system_program.to_account_info(),
-            ],
-        )?;
+        // 1. Transfer Platform Fee to Admin Wallet
+        if fee_amount > 0 {
+            let fee_transfer_ix = anchor_lang::solana_program::system_instruction::transfer(
+                &ctx.accounts.buyer.key(),
+                &ctx.accounts.admin_wallet.key(), // Use admin wallet from config
+                fee_amount,
+            );
+            anchor_lang::solana_program::program::invoke(
+                &fee_transfer_ix,
+                &[
+                    ctx.accounts.buyer.to_account_info(),
+                    ctx.accounts.admin_wallet.to_account_info(), // Passed in account
+                    ctx.accounts.system_program.to_account_info(),
+                ],
+            )?;
+        }
         
         msg!("Collected {} lamports in platform fees", fee_amount);
 
-        // Transfer remaining amount to creator
+
+        // 2. Transfer Remaining Amount to Creator's Wallet
         let transfer_instruction = anchor_lang::solana_program::system_instruction::transfer(
             &ctx.accounts.buyer.key(),
             &ctx.accounts.creator_wallet.key(),
@@ -132,7 +168,7 @@ pub mod auton_program {
         access_account.content_id = content_id;
         
         msg!("Payment processed: {} lamports (fee: {}, creator: {})", 
-             amount_to_pay, platform_fee, creator_amount);
+             total_price, fee_amount, creator_amount);
         
         Ok(())
     }
@@ -140,6 +176,13 @@ pub mod auton_program {
 
 // 1. ACCOUNTS (State)
 // These structs define the shape of the data we store on-chain.
+
+// Global configuration for the protocol (admin wallet, fee percentage)
+#[account]
+pub struct ProtocolConfig {
+    pub admin_wallet: Pubkey,
+    pub fee_percentage: u64, // Basis points (e.g., 500 = 5%)
+}
 
 // NEW: Username registry entry - maps username to wallet address
 #[account]
@@ -153,6 +196,7 @@ pub struct CreatorAccount {
     pub creator_wallet: Pubkey,
     pub last_content_id: u64, // Counter for generating unique content IDs
     pub content: Vec<ContentItem>,
+    pub profile_cid: String, // IPFS CID for profile metadata (bio, avatar, etc.)
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug)]
@@ -174,6 +218,32 @@ pub struct PaidAccessAccount {
 // These structs define the accounts required by each instruction.
 // Anchor uses this to validate that the correct accounts are passed in.
 
+// Context for initializing the protocol config
+#[derive(Accounts)]
+#[instruction(initial_fee_percentage: u64)]
+pub struct InitializeConfig<'info> {
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + 32 + 8, // discriminator + admin_wallet pubkey + fee_percentage u64
+        seeds = [b"config"],
+        bump
+    )]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    pub system_program: Program<'info, System>,
+}
+
+// Context for updating the protocol config
+#[derive(Accounts)]
+pub struct UpdateConfig<'info> {
+    #[account(mut, seeds = [b"config"], bump)]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+    #[account(mut)]
+    pub admin: Signer<'info>, // Only current admin can sign
+}
+
 // NEW: Context for registering a username
 #[derive(Accounts)]
 #[instruction(username: String)]
@@ -182,7 +252,7 @@ pub struct RegisterUsername<'info> {
     // Seeds include the username, ensuring each username can only be claimed once.
     #[account(
         init,
-        payer = creator,
+        payer = payer,
         space = 8 + 32 + 4 + username.len(), // discriminator + pubkey + string length + username
         seeds = [b"username", username.as_bytes()],
         bump
@@ -193,6 +263,10 @@ pub struct RegisterUsername<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
 
+    // The account paying for the rent. Can be the creator or a relayer.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
     pub system_program: Program<'info, System>,
 }
 
@@ -200,21 +274,25 @@ pub struct RegisterUsername<'info> {
 pub struct InitializeCreator<'info> {
     // The PDA account for the creator's content list.
     // `init` means this instruction will create the account.
-    // `payer = creator` means the creator will pay for the account's rent.
+    // `payer = payer` means the payer account will pay for the account's rent.
     // `space` is the initial space allocation. 8 for the discriminator, 32 for the pubkey, 4 for the vector prefix.
     // We will need to reallocate more space later when content is added.
     #[account(
         init,
-        payer = creator,
-        space = 8 + 32 + 8 + 4, // discriminator + wallet + counter + vec prefix
+        payer = payer,
+        space = 8 + 32 + 8 + 4 + 4, // discriminator + wallet + counter + vec prefix + string prefix (profile_cid)
         seeds = [b"creator", creator.key().as_ref()],
         bump
     )]
     pub creator_account: Account<'info, CreatorAccount>,
     
-    // The creator, who must sign the transaction.
+    // The creator, who must sign the transaction to authorize account creation.
     #[account(mut)]
     pub creator: Signer<'info>,
+
+    // The account paying for the rent. Can be the creator or a relayer.
+    #[account(mut)]
+    pub payer: Signer<'info>,
     
     // The system program, required by Solana to create accounts.
     pub system_program: Program<'info, System>,
@@ -231,13 +309,40 @@ pub struct AddContent<'info> {
         seeds = [b"creator", creator.key().as_ref()],
         bump,
         // Approximate: id(8) + title(128) + price(8) + encrypted_cid(100)
-        realloc = 8 + 32 + 8 + 4 + (creator_account.content.len() + 1) * (8 + 4 + 128 + 8 + 4 + 100), 
-        realloc::payer = creator,
+        // PLUS profile_cid current length
+        realloc = 8 + 32 + 8 + 4 + (creator_account.content.len() + 1) * (8 + 4 + 128 + 8 + 4 + 100) + (4 + creator_account.profile_cid.len()), 
+        realloc::payer = payer,
         realloc::zero = true
     )]
     pub creator_account: Account<'info, CreatorAccount>,
 
     // The creator, who must sign.
+    #[account(mut)]
+    pub creator: Signer<'info>,
+
+    // The account paying for the extra rent. Can be the creator or a relayer.
+    #[account(mut)]
+    pub payer: Signer<'info>,
+
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(profile_cid: String)]
+pub struct UpdateProfile<'info> {
+    #[account(
+        mut,
+        seeds = [b"creator", creator.key().as_ref()],
+        bump,
+        // Reallocate to fit new profile CID length + existing content
+        // Note: Using approximate size for content items again. 
+        // In production, you might want a cleaner way to track size or separate accounts.
+        realloc = 8 + 32 + 8 + 4 + (creator_account.content.len() * (8 + 4 + 128 + 8 + 4 + 100)) + (4 + profile_cid.len()),
+        realloc::payer = creator,
+        realloc::zero = false
+    )]
+    pub creator_account: Account<'info, CreatorAccount>,
+
     #[account(mut)]
     pub creator: Signer<'info>,
 
@@ -258,6 +363,10 @@ pub struct ProcessPayment<'info> {
     )]
     pub paid_access_account: Account<'info, PaidAccessAccount>,
 
+    // The protocol's global configuration account
+    #[account(seeds = [b"config"], bump)]
+    pub protocol_config: Account<'info, ProtocolConfig>,
+
     // The creator's account, used to verify the payment destination and price.
     #[account(mut)]
     pub creator_account: Account<'info, CreatorAccount>,
@@ -269,21 +378,15 @@ pub struct ProcessPayment<'info> {
     #[account(mut, address = creator_account.creator_wallet)]
     pub creator_wallet: AccountInfo<'info>,
 
+    // The admin wallet that receives the platform fee.
+    // Its address is validated against the protocol_config.
+    /// CHECK: This is the admin wallet address, validated by the address constraint.
+    #[account(mut, address = protocol_config.admin_wallet)]
+    pub admin_wallet: AccountInfo<'info>,
+
     // The user who is paying.
     #[account(mut)]
     pub buyer: Signer<'info>,
-
-    // Vault governance accounts for fee collection
-    /// CHECK: Vault state PDA
-    #[account(mut, seeds = [b"vault_state"], bump)]
-    pub vault_state: Account<'info, VaultState>,
-
-    /// CHECK: Vault wallet that receives fees
-    #[account(mut, address = vault_state.vault_wallet)]
-    pub vault_wallet: AccountInfo<'info>,
-
-    /// CHECK: Vault governance program
-    pub vault_governance_program: Program<'info, VaultGovernance>,
 
     pub system_program: Program<'info, System>,
 }
@@ -301,4 +404,6 @@ pub enum CustomError {
 
     #[msg("Invalid username. Must be 3-32 characters, alphanumeric or underscore only.")]
     InvalidUsername,
+    #[msg("Invalid fee percentage. Must be <= 10000 (100%).")]
+    InvalidFeePercentage,
 }
