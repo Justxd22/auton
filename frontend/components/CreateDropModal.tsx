@@ -63,7 +63,7 @@ export function CreateDropModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
       {/* Window Container */}
       <div className="w-full max-w-2xl bg-black border-2 border-zinc-700 shadow-[0_0_40px_rgba(0,0,0,0.8)] relative">
         

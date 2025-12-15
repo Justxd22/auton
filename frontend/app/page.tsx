@@ -458,15 +458,36 @@ export default function CreatorWorkspace() {
 
           {/* Connect Button */}
           <div className="w-full max-w-md">
-             <div className="retro-card border-neon-green/30 bg-black/50 backdrop-blur-sm p-8 flex flex-col gap-6 items-center">
+             <div className="retro-card !border-neon-green bg-black/50 backdrop-blur-sm p-8 flex flex-col gap-6 items-center">
                 <div className="flex items-center gap-2 text-neon-green font-pixel text-xl animate-pulse">
                    <Play className="w-6 h-6 fill-current" />
                    <span>READY TO START?</span>
                 </div>
-                <div className="w-full">
-                   <WalletMultiButton className="!w-full !justify-center !font-pixel !text-2xl !h-16 !bg-neon-green !text-black !border-none hover:!bg-white hover:!scale-105 transition-all !uppercase" />
+                
+                <div className="flex w-full items-center justify-center gap-4">
+                  <div className="flex-1">
+                    <WalletMultiButton className="!w-full !justify-center !font-pixel !text-sm !h-14 !bg-neon-green !text-black !border-none hover:!bg-white hover:!scale-105 transition-all !uppercase" />
+                  </div>
+
+                  {/* Custom Vertical Divider */}
+                  <div className="flex flex-col items-center justify-center h-14">
+                    <div className="w-px h-full bg-zinc-700"></div>
+                  </div>
+
+                  <div className="flex-1 ml-5">
+                    <SocialLogin 
+                      onSuccess={(walletAddress) => {
+                        console.log('Wallet created:', walletAddress);
+                        window.location.reload();
+                      }}
+                      onError={(error) => {
+                        setStatus({ type: 'error', message: error.message });
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="text-zinc-500 font-mono text-xs">
+
+                <div className="text-zinc-500 font-mono text-xs mt-4">
                    <p>POWERED BY SOLANA • X402 PROTOCOL</p>
                 </div>
              </div>
@@ -540,7 +561,7 @@ export default function CreatorWorkspace() {
                 onClick={copyShareLink}
                 className="retro-btn text-sm px-4 py-2 border-neon-blue text-neon-blue hover:bg-neon-blue hover:text-white"
               >
-                 {copiedLink ? 'COPIED!' : 'kv SHARE LINK'}
+                 {copiedLink ? 'COPIED!' : 'SHARE LINK'}
               </button>
            </div>
         </div>
@@ -602,7 +623,7 @@ export default function CreatorWorkspace() {
       />
 
       {showUsernameSetup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <UsernameSetup
             onUsernameSet={handleUsernameSet}
             onSkip={handleSkipUsername}
@@ -620,7 +641,7 @@ export default function CreatorWorkspace() {
       )}
 
       {showSponsorModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
             <div className="retro-card max-w-md w-full text-center space-y-6">
                 <div className="inline-flex items-center justify-center w-16 h-16 bg-neon-yellow/20 rounded-full border border-neon-yellow">
                     <Zap className="w-8 h-8 text-neon-yellow" />

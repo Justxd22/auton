@@ -4,7 +4,6 @@ import "./globals.css";
 import WalletProvider from "@/components/WalletProvider";
 import { PrivyProvider } from "@/components/PrivyProvider";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import Image from "next/image";
 import Link from "next/link";
 
@@ -44,7 +43,7 @@ export default function RootLayout({
           <PrivyProvider>
             <WalletProvider>
               <header className="fixed top-0 left-0 right-0 z-50 py-4 px-4 lg:px-8 pointer-events-none">
-                <div className="max-w-7xl mx-auto flex items-center justify-between pointer-events-auto">
+                <div className=" mx-auto flex items-center justify-between pointer-events-auto">
                   <Link href="/" className="flex items-center gap-3 group">
                     <div className="relative transition-transform group-hover:scale-110">
                       <Image
@@ -66,12 +65,10 @@ export default function RootLayout({
                     >
                       Hub
                     </Link>
-                    <div className="w-px h-4 bg-zinc-800"></div>
-                    <ThemeToggle />
                   </nav>
                 </div>
               </header>
-              <main className="pt-24 min-h-screen">
+              <main className=" min-h-screen">
                 {children}
               </main>
             </WalletProvider>

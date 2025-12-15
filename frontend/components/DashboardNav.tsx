@@ -2,6 +2,8 @@
 
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 import { LayoutGrid, Image as ImageIcon, Plus } from 'lucide-react';
+import Link from 'next/link';
+import Image from "next/image";
 
 export type DashboardTab = 'dashboard' | 'gallery';
 
@@ -13,11 +15,26 @@ interface DashboardNavProps {
 
 export function DashboardNav({ activeTab, onTabChange, onCreateClick }: DashboardNavProps) {
   return (
-    <nav className="sticky top-0 z-40 bg-background border-b border-border py-4">
+    <nav className="sticky top-0 z-40 bg-black border-b border-border py-4 z-61">
       <div className="container mx-auto px-4 max-w-7xl">
         <div className="flex items-center justify-between">
           {/* Tabs */}
           <div className="flex items-center gap-4">
+                            <Link href="/" className="flex items-center gap-3 group">
+                              <div className="relative transition-transform group-hover:scale-110">
+                                <Image
+                                  src="/auton-logo.png"
+                                  alt="Auton Logo"
+                                  width={40}
+                                  height={40}
+                                  className="object-contain"
+                                />
+                              </div>
+                              <span className="font-pixel text-2xl text-white tracking-widest uppercase">
+                                Auton
+                              </span>
+                            </Link>
+
             <button
               onClick={() => onTabChange('dashboard')}
               className={`flex items-center gap-2 px-4 py-2 font-pixel text-lg uppercase tracking-wider transition-all border-b-2 ${
@@ -46,7 +63,7 @@ export function DashboardNav({ activeTab, onTabChange, onCreateClick }: Dashboar
           <div className="flex items-center gap-4">
             <button
               onClick={onCreateClick}
-              className="retro-btn flex items-center gap-2 text-sm"
+              className="retro-btn flex items-center gap-2 text-sm !bg-neon-green !text-black"
             >
               <Plus className="w-4 h-4" />
               NEW DROP
