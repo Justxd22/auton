@@ -6,7 +6,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { useWallet } from '@solana/wallet-adapter-react';
 import IDL from '@/lib/anchor/auton_program.json';
 import { AutonProgram } from '@/lib/anchor/auton_program';
-import { Download } from 'lucide-react';
+import { Download, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 
 const SOLANA_RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC_URL || 'http://127.0.0.1:8899';
 const AUTON_PROGRAM_ID = process.env.NEXT_PUBLIC_AUTON_PROGRAM_ID;
@@ -67,7 +67,6 @@ export function MyPurchases() {
       setLoading(true);
       setError(null);
       try {
-        // Query all PaidAccessAccount PDAs where the buyer matches
         const buyerFilter = [
           {
             memcmp: {
@@ -79,8 +78,6 @@ export function MyPurchases() {
 
         const receipts = await program.account.paidAccessAccount.all(buyerFilter);
         const resolved: PurchaseItem[] = [];
-
-        // Fetch all CreatorAccount PDAs so we can map contentId -> creator and CID
         const creators = await program.account.creatorAccount.all();
 
         for (const receipt of receipts) {
@@ -92,7 +89,6 @@ export function MyPurchases() {
 
           if (!contentId) continue;
 
-          // Try to find the creator account that contains this contentId
           let ipfsCid: string | undefined;
           let creatorAddr = '';
 
@@ -104,13 +100,11 @@ export function MyPurchases() {
                 return id === contentId;
               });
               if (match) {
-                // Creator wallet stored on the CreatorAccount struct
                 const creatorWallet = (ca.account as any).creatorWallet || (ca.account as any).creator_wallet;
                 creatorAddr = creatorWallet?.toBase58?.() || String(creatorWallet) || ca.publicKey.toBase58();
 
                 const encrypted = match.encrypted_cid || match.encryptedCid || match.encryptedCid?.toString?.() || match.encrypted_cid?.toString?.();
                 if (encrypted) {
-                  // If it's bytes/Buffer, convert to utf8 string
                   try {
                     if (typeof encrypted === 'string') ipfsCid = encrypted;
                     else if (Buffer.isBuffer(encrypted)) ipfsCid = encrypted.toString('utf8');
@@ -119,7 +113,6 @@ export function MyPurchases() {
                     ipfsCid = String(encrypted);
                   }
                 }
-
                 break;
               }
             }
@@ -137,7 +130,6 @@ export function MyPurchases() {
 
         setPurchases(resolved);
         
-        // Auto-fetch content for all purchases
         for (const item of resolved) {
           const key = `${item.creator}-${item.contentId}`;
           if (!contentData.has(key)) {
@@ -166,19 +158,16 @@ export function MyPurchases() {
   const toggleExpandContent = (key: string) => {
     setExpandedContent(prev => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
-      } else {
-        next.add(key);
-      }
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
   if (!publicKey) {
     return (
-      <div className="text-center py-12">
-        <p className="text-gray-600 dark:text-gray-400">Connect your wallet to see your purchases</p>
+      <div className="text-center py-12 border border-dashed border-zinc-700">
+        <p className="font-mono text-zinc-500">CONNECT_WALLET_TO_VIEW_INVENTORY</p>
       </div>
     );
   }
@@ -187,15 +176,8 @@ export function MyPurchases() {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="flex flex-col items-center gap-3">
-          <svg className="animate-spin h-8 w-8 text-blue-600" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-            />
-          </svg>
-          <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Loading your purchases...</p>
+          <div className="w-8 h-8 border-2 border-neon-blue border-t-transparent rounded-full animate-spin"></div>
+          <p className="font-mono text-sm text-neon-blue blink">RETRIEVING_ASSETS...</p>
         </div>
       </div>
     );
@@ -203,31 +185,23 @@ export function MyPurchases() {
 
   if (error && purchases.length === 0) {
     return (
-      <div className="rounded-xl border-2 border-red-400 bg-red-50/90 dark:bg-red-900/20 text-red-800 dark:text-red-300 p-4">
-        <p>Error loading purchases: {error}</p>
+      <div className="border border-neon-pink bg-neon-pink/10 p-4 text-neon-pink font-mono text-sm">
+        <p>ERROR: {error}</p>
       </div>
     );
   }
 
   if (purchases.length === 0) {
     return (
-      <div className="text-center py-12">
-        <svg className="w-16 h-16 text-gray-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={1.5}
-            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-          />
-        </svg>
-        <p className="text-gray-600 dark:text-gray-400 text-lg">You haven't purchased any drops yet</p>
-        <p className="text-gray-500 dark:text-gray-500 text-sm mt-2">Explore creator galleries to get started</p>
+      <div className="text-center py-12 border border-dashed border-zinc-700">
+        <p className="font-pixel text-zinc-500 text-xl mb-2">EMPTY INVENTORY</p>
+        <p className="font-mono text-zinc-600 text-xs">VISIT THE GALLERY TO ACQUIRE DROPS</p>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       {purchases.map((item) => {
         const key = `${item.creator}-${item.contentId}`;
         const data = contentData.get(key);
@@ -238,69 +212,64 @@ export function MyPurchases() {
         return (
           <div
             key={key}
-            className="rounded-xl border-2 border-gray-200 dark:border-gray-700 bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900 overflow-hidden hover:shadow-lg hover:border-blue-300 dark:hover:border-blue-600 transition-all"
+            className="retro-card p-0 overflow-hidden hover:border-neon-pink transition-colors"
           >
             {/* Content Display */}
-            <div className="relative h-48 bg-gradient-to-br from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 flex items-center justify-center overflow-hidden">
+            <div className="h-48 bg-zinc-900 border-b border-border flex items-center justify-center relative overflow-hidden">
               {url ? (
                 <img
                   src={url}
                   alt={`Drop #${item.contentId}`}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).style.display = 'none';
-                  }}
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                   className="w-full h-full object-cover"
                 />
               ) : (
                 <div className="text-center space-y-2">
-                  <svg className="w-8 h-8 text-gray-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">Loading content...</p>
+                  <div className="w-10 h-10 border border-zinc-700 flex items-center justify-center mx-auto">
+                     <span className="font-pixel text-zinc-500 text-xl">!</span>
+                  </div>
+                  <p className="font-mono text-[10px] text-zinc-500 uppercase">DECRYPTING...</p>
                 </div>
               )}
+              <div className="absolute bottom-2 left-2 bg-black/80 px-2 py-1 border border-neon-pink">
+                 <p className="font-pixel text-neon-pink text-xs">OWNED</p>
+              </div>
             </div>
 
             {/* Info Section */}
             <div className="p-4 space-y-3">
               <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="p-1 bg-purple-100 dark:bg-purple-900/30 rounded">
-                    <svg className="w-3 h-3 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                    </svg>
-                  </div>
-                  <h3 className="text-sm font-bold text-gray-900 dark:text-white">Drop #{item.contentId}</h3>
-                </div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 font-mono ml-5">Creator: {item.creator.slice(0, 8)}...</p>
+                <h3 className="font-pixel text-lg text-white mb-1">DROP #{item.contentId}</h3>
+                <p className="font-mono text-[10px] text-zinc-500 uppercase truncate">CREATOR: {item.creator}</p>
               </div>
 
               {url && (
                 <button
                   onClick={() => toggleExpandContent(key)}
-                  className="w-full px-3 py-2 text-xs font-medium rounded-lg transition-all bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                  className="w-full retro-btn text-xs px-2 py-2 flex items-center justify-center gap-2"
                 >
-                  {isExpanded ? 'Hide Details' : 'View Details'}
+                  {isExpanded ? 'MINIMIZE' : 'INSPECT'}
+                  {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
               )}
             </div>
 
             {/* Expanded Details */}
             {isExpanded && url && (
-              <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-3 bg-gray-50 dark:bg-gray-900/50">
+              <div className="border-t border-dashed border-zinc-700 p-4 space-y-3 bg-zinc-900/50">
                 <a
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                  className="retro-btn-primary w-full text-xs py-2 flex items-center justify-center gap-2"
                 >
                   <Download className="w-3 h-3" />
-                  Open in IPFS Gateway
+                  DOWNLOAD / VIEW
                 </a>
                 {cid && (
-                  <div className="p-3 bg-gray-100 dark:bg-gray-800 rounded-lg">
-                    <p className="text-xs text-gray-600 dark:text-gray-400 mb-1 font-semibold">IPFS CID</p>
-                    <code className="text-xs font-mono text-gray-800 dark:text-gray-200 break-all">{cid}</code>
+                  <div className="bg-black border border-zinc-800 p-2">
+                    <p className="font-mono text-[10px] text-zinc-500 mb-1">IPFS_CID:</p>
+                    <code className="font-mono text-[10px] text-neon-green break-all">{cid}</code>
                   </div>
                 )}
               </div>

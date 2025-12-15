@@ -9,7 +9,7 @@ import * as anchor from '@coral-xyz/anchor';
 import { PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import { AutonProgram } from '@/lib/anchor/auton_program';
 import IDL from '@/lib/anchor/auton_program.json';
-import { ArrowLeft, Lock, CheckCircle, AlertCircle, Info, Zap, User, ExternalLink, Download } from 'lucide-react';
+import { ArrowLeft, Lock, CheckCircle, AlertTriangle, Info, Zap, User, ExternalLink, Download } from 'lucide-react';
 import PaymentModal from './PaymentModal';
 import { FeeBadge } from './FeeBreakdown';
 import { getUserFriendlyErrorMessage, logWalletError, validateTransaction } from '@/lib/transaction-utils';
@@ -138,7 +138,6 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
       console.error('Error resolving creator:', err);
       setError('Failed to resolve creator.');
     } finally {
-        // Only set loading false if we failed. If success, fetchCreatorContent will handle loading state.
         if (!resolvedWalletAddress) setLoading(false); 
     }
   }, [creatorId, program]);
@@ -188,8 +187,6 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
 
     const item = creatorAccount.content.find((c) => (c.id as anchor.BN).toNumber() === id);
     if (item) {
-      // Try to unlock the item (this will handle payments if needed)
-      // Delay slightly to ensure UI is ready
       setTimeout(() => handleUnlockContent(item), 300);
       setAutoFocused(id);
     }
@@ -203,7 +200,6 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
       const account = await program.account.creatorAccount.fetch(creatorAccountPDA);
       setCreatorAccount(account);
 
-      // Fetch Profile Metadata if CID exists
       if (account.profileCid) {
         try {
           const response = await fetch(`${IPFS_GATEWAY_URL}${account.profileCid}`);
@@ -211,7 +207,7 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
             const profileData = await response.json();
             setCreatorProfile({
                 id: resolvedWalletAddress!,
-                username: isUsername ? creatorId : undefined, // Keep username if we resolved from it
+                username: isUsername ? creatorId : undefined,
                 displayName: profileData.displayName,
                 bio: profileData.bio,
                 avatarUrl: profileData.avatarUrl,
@@ -264,16 +260,13 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
     setSuccess('');
 
     try {
-      // 1. Check Access via API (Decrypts if valid receipt exists)
       const accessResponse = await fetch(
         `/api/content/${creatorPubkey!.toBase58()}/${contentItem.id.toNumber()}/access?buyerPubkey=${publicKey.toBase58()}`
       );
 
       if (accessResponse.status === 402) {
-        // 2. Payment Required: Build Transaction
         console.log("Payment required. Building transaction...");
         
-        // Fetch Protocol Config to get Admin Wallet
         const [configPDA] = PublicKey.findProgramAddressSync(
             [Buffer.from("config")],
             program.programId
@@ -283,7 +276,6 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
 
         if (!creatorAccountPDA) throw new Error('Creator account PDA not found');
 
-        // Derive Receipt PDA
         const [paidAccessPDA] = PublicKey.findProgramAddressSync(
           [
             Buffer.from("access"),
@@ -293,7 +285,6 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
           program.programId
         );
 
-        // Build Instruction
         const ix = await program.methods
           .processPayment(new anchor.BN(contentItem.id.toNumber()))
           .accounts({
@@ -312,11 +303,9 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
         transaction.recentBlockhash = blockhash;
         transaction.feePayer = publicKey;
 
-        // Validate
         const validation = validateTransaction(transaction);
         if (!validation.valid) throw new Error(`Transaction validation failed: ${validation.error}`);
 
-        // Send
         let signature: string;
         try {
             signature = await sendTransaction(transaction, connection);
@@ -330,12 +319,10 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
         
         setSuccess('Payment confirmed! Retrieving content...');
         
-        // 3. Retry Access Request (Now that receipt exists)
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for RPC sync
-        await handleUnlockContent(contentItem); // Recursive call
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await handleUnlockContent(contentItem);
 
       } else if (accessResponse.ok) {
-        // 4. Access Granted
         const { ipfsCid }: { ipfsCid: string } = await accessResponse.json();
         setDecryptedCids(prev => new Map(prev).set(contentItem.id.toNumber(), ipfsCid));
         setSuccess('Content unlocked!');
@@ -363,7 +350,7 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
     if (!contentType) {
       return (
         <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
+          <div className="w-8 h-8 border-2 border-neon-blue border-t-transparent rounded-full animate-spin"></div>
         </div>
       );
     }
@@ -374,11 +361,11 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
           <img
             src={url}
             alt={item.title}
-            className="w-full h-64 object-cover rounded-lg"
+            className="w-full h-64 object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
           />
-          <div className="absolute top-2 right-2 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+          <div className="absolute top-2 right-2 bg-neon-green/20 text-neon-green px-3 py-1 border border-neon-green text-xs font-pixel flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />
-            Unlocked
+            UNLOCKED
           </div>
         </div>
       );
@@ -390,11 +377,11 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
           <video
             controls
             src={url}
-            className="w-full h-64 object-cover rounded-lg"
+            className="w-full h-64 object-cover"
           />
-          <div className="absolute top-2 right-2 bg-green-500 text-white px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+          <div className="absolute top-2 right-2 bg-neon-green/20 text-neon-green px-3 py-1 border border-neon-green text-xs font-pixel flex items-center gap-1">
             <CheckCircle className="w-3 h-3" />
-            Unlocked
+            UNLOCKED
           </div>
         </div>
       );
@@ -402,26 +389,26 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
 
     return (
       <div className="flex flex-col items-center justify-center py-8 space-y-4">
-        <Download className="w-12 h-12 text-purple-600" />
+        <Download className="w-12 h-12 text-neon-blue" />
         <a
           href={url}
           download
-          className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-3 text-white font-semibold hover:from-purple-700 hover:to-blue-700 transition-all"
+          className="retro-btn-primary flex items-center gap-2 text-xs"
         >
           <Download className="w-4 h-4" />
-          Download File
+          DOWNLOAD_FILE
         </a>
-        <p className="text-xs text-gray-500 dark:text-gray-400">({contentType})</p>
+        <p className="text-xs text-zinc-500 font-mono">TYPE: {contentType}</p>
       </div>
     );
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-600 mx-auto"></div>
-          <p className="text-gray-600 dark:text-gray-300 font-medium">Loading creator content...</p>
+          <div className="w-16 h-16 border-4 border-neon-blue border-t-transparent rounded-full animate-spin mx-auto"></div>
+          <p className="font-pixel text-neon-blue text-xl">LOADING_PROFILE...</p>
         </div>
       </div>
     );
@@ -429,13 +416,13 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
 
   if (error && !creatorAccount) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
-        <div className="text-center space-y-4 max-w-md mx-auto px-4">
-          <AlertCircle className="w-16 h-16 text-red-500 mx-auto" />
-          <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
-          <Link href="/" className="inline-flex items-center gap-2 text-purple-600 hover:text-purple-700 font-medium">
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4 max-w-md mx-auto px-4 border border-neon-pink p-8 bg-neon-pink/5">
+          <AlertTriangle className="w-16 h-16 text-neon-pink mx-auto" />
+          <p className="text-neon-pink font-pixel text-xl">{error.toUpperCase()}</p>
+          <Link href="/" className="retro-btn inline-flex items-center gap-2 mt-4">
             <ArrowLeft className="w-4 h-4" />
-            Back to Creator Hub
+            RETURN TO HUB
           </Link>
         </div>
       </div>
@@ -444,13 +431,13 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
 
   if (!creatorAccount) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
-        <div className="text-center space-y-4">
-          <Info className="w-16 h-16 text-gray-400 mx-auto" />
-          <p className="text-gray-600 dark:text-gray-300">No content found for this creator.</p>
-          <Link href="/" className="inline-flex items-center gap-2 text-purple-600 hover:text-purple-700 font-medium">
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-center space-y-4 border border-zinc-700 p-8">
+          <Info className="w-16 h-16 text-zinc-500 mx-auto" />
+          <p className="font-mono text-zinc-400">NO_CONTENT_FOUND</p>
+          <Link href="/" className="retro-btn inline-flex items-center gap-2 mt-4">
             <ArrowLeft className="w-4 h-4" />
-            Back to Creator Hub
+            RETURN TO HUB
           </Link>
         </div>
       </div>
@@ -458,147 +445,108 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50 dark:from-gray-900 dark:via-gray-900 dark:to-gray-800">
+    <div className="min-h-screen bg-background text-foreground">
       <div className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <Link href="/" className="inline-flex items-center gap-2 text-purple-600 dark:text-purple-400 hover:text-purple-700 dark:hover:text-purple-300 font-medium transition-colors">
+          <Link href="/" className="inline-flex items-center gap-2 text-zinc-400 hover:text-white transition-colors font-mono uppercase text-sm">
             <ArrowLeft className="w-4 h-4" />
-            Back to Creator Hub
+            BACK_TO_HUB
           </Link>
-          <WalletMultiButton />
+          <WalletMultiButton className="!bg-surface !border !border-border !font-pixel !uppercase hover:!bg-neon-green hover:!text-black" />
         </div>
 
-        {/* Creator Info Card */}
-        <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-xl p-8 mb-8 border border-gray-200/50 dark:border-gray-700/50">
-          <div className="flex items-start justify-between flex-wrap gap-4">
-            <div className="space-y-3">
-              {/* Username/Display Name */}
-              {creatorProfile?.username ? (
-                <div className="flex items-center gap-3">
-                  {creatorProfile.avatarUrl ? (
-                    <img 
-                      src={creatorProfile.avatarUrl} 
-                      alt={creatorProfile.displayName || creatorProfile.username}
-                      className="w-16 h-16 rounded-full object-cover border-2 border-purple-200 dark:border-purple-700"
-                    />
-                  ) : (
-                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
-                      <User className="w-8 h-8 text-white" />
-                    </div>
-                  )}
-                  <div>
-                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
-                      {creatorProfile.displayName || `@${creatorProfile.username}`}
-                    </h1>
-                    {creatorProfile.displayName && (
-                      <p className="text-purple-600 dark:text-purple-400 font-medium">
-                        @{creatorProfile.username}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : (
-                <p className="text-2xl font-bold text-gray-600 dark:text-gray-300 flex items-center gap-2">
-                  Creator: 
-                  <code className="bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-lg font-mono text-xl">
-                    {creatorPubkey?.toBase58().slice(0, 8)}...{creatorPubkey?.toBase58().slice(-8)}
-                  </code>
-                </p>
-              )}
-              
-              {/* Bio */}
-              {creatorProfile?.bio && (
-                <p className="text-gray-600 dark:text-gray-400 max-w-2xl">
-                  {creatorProfile.bio}
-                </p>
-              )}
+        {/* Creator Info Card (Player Card Style) */}
+        <div className="retro-card mb-8 flex flex-col md:flex-row items-center gap-8 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 p-2 opacity-50 font-mono text-[10px] text-zinc-600">ID: {creatorPubkey?.toBase58().slice(0,8)}</div>
+          
+          <div className="w-32 h-32 bg-black border-2 border-neon-blue flex-shrink-0 relative">
+             {creatorProfile?.avatarUrl ? (
+               <img src={creatorProfile.avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center bg-zinc-900">
+                 <User className="w-12 h-12 text-zinc-600" />
+               </div>
+             )}
+             <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-neon-green border border-black"></div>
+          </div>
 
-              {/* Social Links */}
-              {creatorProfile?.socialLinks && Object.keys(creatorProfile.socialLinks).length > 0 && (
-                <div className="flex items-center gap-3 pt-2">
+          <div className="flex-1 text-center md:text-left space-y-2">
+             <h1 className="font-pixel text-5xl text-white">
+               {creatorProfile?.displayName || creatorProfile?.username || 'UNKNOWN_CREATOR'}
+             </h1>
+             {creatorProfile?.username && (
+               <p className="font-mono text-neon-blue">@{creatorProfile.username}</p>
+             )}
+             {creatorProfile?.bio && (
+               <p className="font-mono text-sm text-zinc-400 max-w-2xl border-l-2 border-zinc-700 pl-4 py-1">
+                 {creatorProfile.bio}
+               </p>
+             )}
+             
+             {creatorProfile?.socialLinks && Object.keys(creatorProfile.socialLinks).length > 0 && (
+                <div className="flex items-center justify-center md:justify-start gap-4 pt-2">
                   {Object.entries(creatorProfile.socialLinks).map(([platform, url]) => (
                     <a
                       key={platform}
                       href={url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-sm text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                      className="text-xs font-mono text-zinc-500 hover:text-neon-yellow uppercase flex items-center gap-1"
                     >
-                      {platform}
-                      <ExternalLink className="w-3 h-3" />
+                      {platform} <ExternalLink className="w-3 h-3" />
                     </a>
                   ))}
                 </div>
-              )}
-            </div>
-            
-            <div className="flex items-center gap-2 bg-gradient-to-r from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30 px-4 py-2 rounded-full">
-              <Zap className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              <span className="text-sm font-semibold text-purple-900 dark:text-purple-100">
-                {creatorAccount.content.length} items available
-              </span>
-            </div>
+             )}
           </div>
-        </div>
 
-        {/* What is Auton - For first-time visitors */}
-        <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 backdrop-blur-sm rounded-xl border border-purple-200 dark:border-purple-800 p-6 mb-8">
-          <div className="flex items-start gap-4">
-            <div className="p-3 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl flex-shrink-0">
-              <Zap className="w-6 h-6 text-white" />
-            </div>
-            <div>
-              <h3 className="font-bold text-purple-900 dark:text-purple-100 mb-2 text-lg">What is Auton?</h3>
-              <p className="text-sm text-purple-800 dark:text-purple-200 leading-relaxed mb-3">
-                Auton is a decentralized platform for creators to share encrypted content. 
-                Pay once with Solana to unlock files permanently. Funds go directly to the creator.
-              </p>
-              <p className="text-xs text-purple-600 dark:text-purple-400">
-                Powered by x402 protocol • Instant payments • No middlemen
-              </p>
-            </div>
+          <div className="flex flex-col items-end justify-center border-l border-dashed border-zinc-800 pl-8">
+             <div className="text-right">
+                <span className="font-pixel text-4xl text-neon-green">{creatorAccount.content.length}</span>
+                <p className="font-mono text-xs text-zinc-500 uppercase">DROPS_ACTIVE</p>
+             </div>
           </div>
         </div>
 
         {/* Alert Messages */}
         {success && (
-          <div className="mb-6 rounded-xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 px-6 py-4 flex items-start gap-3">
-            <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-green-700 dark:text-green-300 font-medium">{success}</p>
+          <div className="mb-6 p-4 border border-neon-green bg-neon-green/10 flex items-center gap-3">
+            <CheckCircle className="w-5 h-5 text-neon-green" />
+            <p className="font-mono text-sm text-neon-green">{success}</p>
           </div>
         )}
         {error && (
-          <div className="mb-6 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 px-6 py-4 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-red-700 dark:text-red-300 font-medium">{error}</p>
+          <div className="mb-6 p-4 border border-neon-pink bg-neon-pink/10 flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-neon-pink" />
+            <p className="font-mono text-sm text-neon-pink">{error}</p>
           </div>
         )}
 
         {/* Info Cards */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">
-          <div className="bg-amber-50 dark:bg-amber-900/20 backdrop-blur-sm rounded-xl border border-amber-200 dark:border-amber-800 p-6">
+          <div className="border border-neon-orange/30 p-4 bg-neon-orange/5">
             <div className="flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+              <AlertTriangle className="w-5 h-5 text-neon-orange mt-1" />
               <div>
-                <h3 className="font-semibold text-amber-900 dark:text-amber-200 mb-2">No-Refund Policy</h3>
-                <p className="text-sm text-amber-800 dark:text-amber-300 leading-relaxed">
-                  Blockchain payments are final and cannot be reversed. Please review content details carefully before unlocking.
+                <h3 className="font-pixel text-neon-orange mb-1">NO_REFUNDS_POLICY</h3>
+                <p className="font-mono text-xs text-neon-orange/70 leading-relaxed">
+                  BLOCKCHAIN TRANSACTIONS ARE FINAL. CONFIRM BEFORE UNLOCKING.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="bg-blue-50 dark:bg-blue-900/20 backdrop-blur-sm rounded-xl border border-blue-200 dark:border-blue-800 p-6">
+          <div className="border border-neon-blue/30 p-4 bg-neon-blue/5">
             <div className="flex items-start gap-3">
-              <Info className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0 mt-0.5" />
+              <Info className="w-5 h-5 text-neon-blue mt-1" />
               <div>
-                <h3 className="font-semibold text-blue-900 dark:text-blue-200 mb-2">How It Works</h3>
-                <ol className="text-sm text-blue-800 dark:text-blue-300 space-y-1 leading-relaxed">
-                  <li>1. Connect your Solana wallet</li>
-                  <li>2. Click "Unlock" on desired content</li>
-                  <li>3. Approve the transaction</li>
-                  <li>4. Access your content instantly</li>
+                <h3 className="font-pixel text-neon-blue mb-1">SYSTEM_INSTRUCTIONS</h3>
+                <ol className="font-mono text-xs text-neon-blue/70 space-y-1 list-decimal list-inside">
+                  <li>CONNECT_WALLET</li>
+                  <li>SELECT_TARGET_DROP</li>
+                  <li>APPROVE_TX</li>
+                  <li>ACCESS_GRANTED</li>
                 </ol>
               </div>
             </div>
@@ -614,43 +562,38 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
             return (
               <div
                 key={item.id.toNumber()}
-                className="group bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-2xl shadow-lg hover:shadow-2xl transition-all duration-300 overflow-hidden border border-gray-200/50 dark:border-gray-700/50"
+                className="retro-card p-0 overflow-hidden group flex flex-col h-full hover:border-neon-green transition-colors"
               >
                 {/* Content Preview/Display */}
-                <div className="relative h-64 bg-gradient-to-br from-purple-100 to-blue-100 dark:from-purple-900/30 dark:to-blue-900/30">
+                <div className="relative h-64 bg-zinc-900 border-b border-border">
                   {isUnlocked ? (
                     renderUnlockedContent(item)
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <div className="text-center space-y-3">
-                        <div className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-sm p-4 rounded-full mx-auto w-fit">
-                          <Lock className="w-8 h-8 text-purple-600 dark:text-purple-400" />
+                        <div className="w-12 h-12 border-2 border-zinc-700 flex items-center justify-center mx-auto">
+                          <Lock className="w-6 h-6 text-zinc-500" />
                         </div>
-                        <p className="text-sm font-medium text-gray-600 dark:text-gray-300">Locked Content</p>
+                        <p className="font-pixel text-zinc-500">ENCRYPTED_DATA</p>
                       </div>
                     </div>
                   )}
                 </div>
 
                 {/* Content Info */}
-                <div className="p-6 space-y-4">
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white truncate">
+                <div className="p-5 flex flex-col flex-1">
+                  <h2 className="font-pixel text-xl text-white truncate mb-4 group-hover:text-neon-green transition-colors">
                     {item.title}
                   </h2>
 
                   {/* Price and Creator */}
-                  <div className="space-y-3">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold text-purple-600 dark:text-purple-400">
-                        ◎ {(item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL).toFixed(3)}
-                      </span>
-                      <span className="text-lg font-semibold text-gray-600 dark:text-gray-400">SOL</span>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-                        <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                        <span>Direct to creator</span>
+                  <div className="space-y-4 mb-4 flex-1">
+                    <div className="flex items-end justify-between border-b border-dashed border-zinc-800 pb-2">
+                      <div className="flex items-baseline gap-2">
+                        <span className="font-pixel text-3xl text-neon-yellow">
+                          {(item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL).toFixed(3)}
+                        </span>
+                        <span className="font-mono text-sm text-zinc-500">SOL</span>
                       </div>
                       <FeeBadge />
                     </div>
@@ -665,22 +608,22 @@ export default function CreatorContentPage({ creatorId }: CreatorContentPageProp
                         setShowPaymentModal(true);
                       }}
                       disabled={!connected || isProcessing}
-                      className="w-full rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 py-3 text-white font-semibold hover:from-purple-700 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center gap-2 shadow-lg hover:shadow-xl"
+                      className="w-full retro-btn-primary flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {!connected ? (
                         <>
                           <Lock className="w-4 h-4" />
-                          Connect Wallet to Unlock
+                          CONNECT_TO_UNLOCK
                         </>
                       ) : isProcessing ? (
                         <>
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                          Processing...
+                          <div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin"></div>
+                          PROCESSING...
                         </>
                       ) : (
                         <>
                           <Zap className="w-4 h-4" />
-                          Unlock for ◎ {(item.price.toNumber() / anchor.web3.LAMPORTS_PER_SOL).toFixed(3)}
+                          UNLOCK_ACCESS
                         </>
                       )}
                     </button>

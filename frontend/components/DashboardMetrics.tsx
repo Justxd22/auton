@@ -21,7 +21,6 @@ export function DashboardMetrics({ content, loading, creatorId, program, connect
 
   // Receipt derived stats (read from shared hook)
   const { soldCounts, totalCollected, loading: receiptsLoading } = useCreatorReceipts({ program, creatorId, content, dateFilter });
-  console.debug('DashboardMetrics: soldCounts', soldCounts, 'totalCollected', totalCollected, 'receiptsLoading', receiptsLoading);
 
   // Map content id -> price in SOL for quick lookup
   const priceMap = useMemo(() => {
@@ -52,39 +51,55 @@ export function DashboardMetrics({ content, loading, creatorId, program, connect
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-3">
-          <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-xl shadow-lg border border-gray-200/50 dark:border-gray-700/50 p-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Units Sold</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">{Object.values(soldCounts).reduce((a, b) => a + b, 0)}</p>
-          </div>
-          <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-xl shadow-lg border border-gray-200/50 dark:border-gray-700/50 p-4">
-            <p className="text-sm text-gray-600 dark:text-gray-400 font-medium">Total Collected</p>
-            <p className="text-2xl font-bold text-gray-900 dark:text-white">◎ {totalCollected.toFixed(3)}</p>
-          </div>
-        </div>
+      {/* Top Bar with Filter */}
+      <div className="flex justify-end mb-6">
+        <select 
+          value={dateFilter} 
+          onChange={(e) => setDateFilter(e.target.value as any)} 
+          className="bg-black border border-border text-white font-mono text-sm px-4 py-2 uppercase focus:outline-none focus:border-neon-green"
+        >
+          <option value="all">ALL TIME</option>
+          <option value="today">TODAY</option>
+          <option value="7days">LAST 7 DAYS</option>
+          <option value="30days">LAST 30 DAYS</option>
+        </select>
+      </div>
 
-        <div className="flex items-center gap-3">
-          <select value={dateFilter} onChange={(e) => setDateFilter(e.target.value as any)} className="rounded-lg border px-3 py-2 bg-white dark:bg-gray-800">
-            <option value="all">All time</option>
-            <option value="today">Today</option>
-            <option value="7days">Last 7 days</option>
-            <option value="30days">Last 30 days</option>
-          </select>
+      {/* Main Metrics Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <div className="retro-card flex flex-col justify-between h-48 group hover:border-neon-yellow">
+          <p className="font-mono text-zinc-500 text-sm tracking-widest uppercase">Total Units Sold</p>
+          <p className="font-pixel text-7xl text-neon-yellow group-hover:scale-105 transition-transform origin-left">
+            {Object.values(soldCounts).reduce((a, b) => a + b, 0)}
+          </p>
+        </div>
+        <div className="retro-card flex flex-col justify-between h-48 group hover:border-neon-green">
+          <p className="font-mono text-zinc-500 text-sm tracking-widest uppercase">Total Earnings (SOL)</p>
+          <div className="flex items-baseline gap-2">
+             <span className="font-pixel text-7xl text-neon-green group-hover:scale-105 transition-transform origin-left">
+               {totalCollected.toFixed(2)}
+             </span>
+             <span className="font-mono text-xl text-zinc-600">SOL</span>
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
+      {/* Per-Drop Mini Stats (Horizontal Scroll or Grid) */}
+      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
         {content.map((c) => {
           const id = c.id.toNumber();
           const sold = soldCounts[id] || 0;
           const total = sold * (priceMap[id] || 0);
           return (
-            <div key={id} className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-xl rounded-xl shadow-lg border border-gray-200/50 dark:border-gray-700/50 p-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400 font-medium mb-1">{c.title}</p>
-              <div className="flex items-center justify-between">
-                <p className="text-lg font-bold text-gray-900 dark:text-white">{sold} sold</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400">◎ {total.toFixed(3)}</p>
+            <div key={id} className="retro-card p-4 min-h-[120px] flex flex-col justify-between group">
+              <p className="font-mono text-xs text-zinc-400 truncate uppercase mb-2" title={c.title}>{c.title}</p>
+              <div>
+                <p className="font-pixel text-3xl text-white group-hover:text-neon-pink transition-colors">
+                  {sold} <span className="text-sm font-mono text-zinc-600">SOLD</span>
+                </p>
+                <p className="font-mono text-xs text-zinc-500 mt-1">
+                  ◎ {total.toFixed(3)}
+                </p>
               </div>
             </div>
           );

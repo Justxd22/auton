@@ -1,295 +1,138 @@
 @import "tailwindcss";
 
 :root {
-  --background: #F5F5F5;
-  --foreground: #1a1a1a;
-  --surface: #ffffff;
-  --border: #E0E0E0;
-  --accent: #3b82f6;
-  --accent-hover: #2563eb;
-  --accent-light: #60a5fa;
-  --accent-dark: #1e3a8a;
-}
+  /* Core Palette - Checkpoint Inspired */
+  --background: #050505;
+  --foreground: #E0E0E0;
+  
+  --surface: #111111;
+  --surface-hover: #1A1A1A;
+  
+  --border: #2A2A2A;
+  --border-light: #3F3F3F;
 
-.dark {
-  --background: #1a1a1a;
-  --foreground: #f5f5f5;
-  --surface: #2a2a2a;
-  --border: #404040;
-  --accent: #3b82f6;
-  --accent-hover: #60a5fa;
-  --accent-light: #93c5fd;
-  --accent-dark: #1e3a8a;
+  /* Accents */
+  --accent-green: #57F287;
+  --accent-pink: #EB459E;
+  --accent-yellow: #FEE75C;
+  --accent-orange: #FAA61A;
+  --accent-blue: #5865F2;
+
+  --font-pixel: var(--font-pixel);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-hover: var(--surface-hover);
+  --color-border: var(--border);
+  --color-border-light: var(--border-light);
+  
+  --color-neon-green: var(--accent-green);
+  --color-neon-pink: var(--accent-pink);
+  --color-neon-yellow: var(--accent-yellow);
+  --color-neon-orange: var(--accent-orange);
+  --color-neon-blue: var(--accent-blue);
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-pixel: var(--font-pixel);
 }
 
 body {
+  background-color: var(--background);
   color: var(--foreground);
-  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  font-family: var(--font-geist-sans), sans-serif;
+  
+  /* Dither Pattern Background */
+  background-image: 
+    radial-gradient(circle, #1a1a1a 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
-/* Custom scrollbar */
+/* Typography Utilities */
+.font-pixel {
+  font-family: var(--font-pixel), monospace;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #F5F5F5;
-}
-
-.dark ::-webkit-scrollbar-track {
-  background: #1a1a1a;
+  background: var(--background);
+  border-left: 1px solid var(--border);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #D0D0D0;
-  border-radius: 4px;
-}
-
-.dark ::-webkit-scrollbar-thumb {
-  background: #404040;
+  background: var(--border-light);
+  border: 2px solid var(--background);
+  border-radius: 0; /* Square scrollbar for retro feel */
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #B0B0B0;
+  background: var(--accent-green);
 }
 
-.dark ::-webkit-scrollbar-thumb:hover {
-  background: #525252;
-}
-
-/* Wallet adapter button overrides */
+/* Wallet Adapter Overrides for Retro Vibe */
 .wallet-adapter-button {
-  background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%) !important;
-  color: white !important;
-  border-radius: 0.5rem !important;
-  font-weight: 500 !important;
-  transition: all 0.2s !important;
-  border: none !important;
+  font-family: var(--font-pixel) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1px !important;
+  background-color: var(--surface) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 0 !important;
+  color: var(--foreground) !important;
+  height: 48px !important;
+  transition: all 0.2s ease !important;
 }
 
 .wallet-adapter-button:hover {
-  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #93c5fd 100%) !important;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3) !important;
-}
-
-.wallet-adapter-button:not([disabled]):hover {
-  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #93c5fd 100%) !important;
-}
-
-.wallet-adapter-button-trigger {
-  background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 50%, #60a5fa 100%) !important;
-}
-
-.dark .wallet-adapter-modal-wrapper {
-  background-color: rgba(0, 0, 0, 0.8) !important;
+  background-color: var(--accent-green) !important;
+  color: #000000 !important;
+  border-color: var(--accent-green) !important;
+  box-shadow: 0 0 15px rgba(87, 242, 135, 0.4) !important;
 }
 
 .wallet-adapter-modal-wrapper {
-  background-color: rgba(0, 0, 0, 0.5) !important;
+  background-color: var(--background) !important;
+  border: 1px solid var(--border-light) !important;
+  border-radius: 0 !important;
 }
 
-.wallet-adapter-modal {
-  background-color: white !important;
-  border-radius: 1rem !important;
-  border: 1px solid #E0E0E0 !important;
-}
-
-.dark .wallet-adapter-modal {
-  background-color: #2a2a2a !important;
-  border: 1px solid #404040 !important;
+.wallet-adapter-modal-button-close {
+  background-color: var(--surface) !important;
+  border-radius: 0 !important;
 }
 
 .wallet-adapter-modal-title {
-  color: #1a1a1a !important;
-  font-weight: 600 !important;
+  font-family: var(--font-pixel) !important;
+  text-transform: uppercase !important;
+  color: var(--accent-yellow) !important;
 }
 
-.dark .wallet-adapter-modal-title {
-  color: #f5f5f5 !important;
+/* Card / Panel Utility */
+.retro-card {
+  @apply bg-surface border border-border p-6 transition-all duration-200 hover:border-neon-green/50;
 }
 
-/* ============================================
-   MOBILE RESPONSIVENESS UTILITIES
-   ============================================ */
-
-/* Mobile-first responsive container */
-.container-mobile {
-  @apply px-4 sm:px-6 lg:px-8;
+.retro-card:hover {
+  box-shadow: 0 0 0 1px var(--accent-green);
 }
 
-/* Better touch targets for mobile */
-@media (max-width: 768px) {
-  button, 
-  a[role="button"],
-  .wallet-adapter-button {
-    min-height: 44px; /* Apple's recommended minimum touch target */
-  }
-  
-  input, 
-  textarea, 
-  select {
-    font-size: 16px !important; /* Prevent iOS zoom on focus */
-  }
+/* Button Utility */
+.retro-btn {
+  @apply font-pixel uppercase tracking-wider px-6 py-3 bg-surface border border-border-light text-white transition-all hover:bg-neon-green hover:text-black hover:border-neon-green hover:shadow-[0_0_15px_rgba(87,242,135,0.4)];
 }
 
-/* Wallet adapter mobile fixes */
-@media (max-width: 640px) {
-  .wallet-adapter-button {
-    padding: 0.75rem 1rem !important;
-    font-size: 0.875rem !important;
-  }
-  
-  .wallet-adapter-modal {
-    margin: 1rem !important;
-    max-width: calc(100vw - 2rem) !important;
-  }
-  
-  .wallet-adapter-modal-list {
-    padding: 0.75rem !important;
-  }
-  
-  .wallet-adapter-modal-list li {
-    margin-bottom: 0.5rem !important;
-  }
+.retro-btn-primary {
+  @apply font-pixel uppercase tracking-wider px-6 py-3 bg-neon-green text-black border border-neon-green hover:bg-white hover:border-white transition-all;
 }
 
-/* Responsive text utilities */
-.text-responsive {
-  @apply text-sm sm:text-base;
-}
-
-.text-responsive-lg {
-  @apply text-lg sm:text-xl lg:text-2xl;
-}
-
-.text-responsive-xl {
-  @apply text-xl sm:text-2xl lg:text-3xl;
-}
-
-/* Card grid responsive */
-.card-grid {
-  @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6;
-}
-
-/* Modal responsive fixes */
-@media (max-width: 640px) {
-  .modal-content {
-    max-height: calc(100vh - 2rem);
-    overflow-y: auto;
-  }
-}
-
-/* Header mobile fixes */
-@media (max-width: 640px) {
-  header nav {
-    gap: 0.5rem !important;
-  }
-  
-  header .flex-shrink-0 {
-    max-width: 180px;
-  }
-}
-
-/* Form layout mobile */
-@media (max-width: 640px) {
-  .form-grid {
-    @apply flex flex-col space-y-4;
-  }
-  
-  .form-grid > * {
-    @apply w-full;
-  }
-}
-
-/* Price display mobile */
-@media (max-width: 640px) {
-  .price-display {
-    @apply text-2xl;
-  }
-}
-
-/* Safe area insets for notched devices */
-@supports (padding: env(safe-area-inset-bottom)) {
-  .safe-area-bottom {
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  
-  .safe-area-top {
-    padding-top: env(safe-area-inset-top);
-  }
-}
-
-/* Prevent horizontal scroll on mobile */
-html, body {
-  overflow-x: hidden;
-  max-width: 100vw;
-}
-
-/* Better focus states for accessibility */
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-/* Reduced motion preferences */
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
-
-/* Loading states */
-.skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--surface) 0%,
-    var(--border) 50%,
-    var(--surface) 100%
-  );
-  background-size: 200% 100%;
-  animation: skeleton-loading 1.5s infinite;
-}
-
-@keyframes skeleton-loading {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-/* Truncate with ellipsis */
-.truncate-2-lines {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.truncate-3-lines {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+/* Input Utility */
+.retro-input {
+  @apply w-full bg-black border border-border px-4 py-3 text-white font-mono placeholder-zinc-600 focus:outline-none focus:border-neon-green focus:ring-1 focus:ring-neon-green transition-all;
 }

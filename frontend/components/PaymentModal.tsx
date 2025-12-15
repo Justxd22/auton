@@ -42,7 +42,6 @@ export default function PaymentModal({
       setState('success');
     } catch (err: any) {
       console.error('Payment error:', err);
-      // Use enhanced error extraction for better error messages
       logWalletError(err, 'PaymentModal');
       const errorMessage = err?.message || getUserFriendlyErrorMessage(err) || ERRORS.paymentFailed;
       setError(errorMessage);
@@ -64,45 +63,53 @@ export default function PaymentModal({
         return (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">
-                Unlock Content
+            <div className="bg-neon-blue/20 border-b-2 border-neon-blue px-4 py-2 flex items-center justify-between mb-6">
+              <h2 className="font-pixel text-neon-blue text-lg uppercase tracking-wider">
+                CONFIRM_TRANSACTION
               </h2>
               <button
                 onClick={handleClose}
-                className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                className="hover:text-white text-neon-blue transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
             {/* Content Info */}
-            <div className="bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 rounded-xl p-4 mb-6">
-              <h3 className="font-semibold text-gray-900 dark:text-white mb-1">
-                {contentTitle}
-              </h3>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                {creatorUsername ? `by @${creatorUsername}` : `by ${creatorWallet.slice(0, 8)}...`}
-              </p>
+            <div className="mb-6 space-y-4">
+              <div className="border border-dashed border-zinc-700 p-4">
+                <h3 className="font-pixel text-xl text-white mb-1">
+                  {contentTitle}
+                </h3>
+                <p className="font-mono text-xs text-zinc-500 uppercase">
+                  CREATOR: {creatorUsername ? `@${creatorUsername}` : `${creatorWallet.slice(0, 8)}...`}
+                </p>
+              </div>
+
+              {/* Price Display */}
+              <div className="flex items-center justify-between bg-zinc-900 border border-zinc-800 p-4">
+                 <span className="font-mono text-zinc-400 text-sm">TOTAL COST</span>
+                 <div className="text-right">
+                    <span className="font-pixel text-3xl text-neon-yellow">◎ {priceInSol.toFixed(3)}</span>
+                 </div>
+              </div>
             </div>
 
             {/* Fee Breakdown */}
-            <div className="mb-6">
+            <div className="mb-6 opacity-70 hover:opacity-100 transition-opacity">
               <FeeBreakdown priceInSol={priceInSol} variant="detailed" />
             </div>
 
             {/* No-Refund Warning */}
-            <div className="bg-amber-50 dark:bg-amber-900/20 rounded-xl p-4 mb-6 border border-amber-200 dark:border-amber-800">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                <div>
-                  <h4 className="font-semibold text-amber-900 dark:text-amber-200 text-sm mb-1">
-                    {TOOLTIPS.noRefunds.title}
-                  </h4>
-                  <p className="text-xs text-amber-800 dark:text-amber-300">
-                    {TOOLTIPS.noRefunds.description}
-                  </p>
-                </div>
+            <div className="bg-neon-pink/10 border border-neon-pink/50 p-4 mb-6 flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-neon-pink flex-shrink-0 mt-0.5" />
+              <div>
+                <h4 className="font-pixel text-neon-pink text-sm mb-1 uppercase">
+                  WARNING: IRREVERSIBLE
+                </h4>
+                <p className="font-mono text-[10px] text-neon-pink/80">
+                  {TOOLTIPS.noRefunds.description}
+                </p>
               </div>
             </div>
 
@@ -110,16 +117,16 @@ export default function PaymentModal({
             <div className="flex gap-3">
               <button
                 onClick={handleClose}
-                className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700 transition-all"
+                className="retro-btn flex-1 bg-black border-zinc-700 text-zinc-400 hover:text-white"
               >
-                {BUTTONS.cancel}
+                {BUTTONS.cancel.toUpperCase()}
               </button>
               <button
                 onClick={handleConfirm}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold hover:from-purple-700 hover:to-blue-700 transition-all flex items-center justify-center gap-2"
+                className="retro-btn-primary flex-1 flex items-center justify-center gap-2"
               >
                 <Zap className="w-5 h-5" />
-                Unlock for ◎ {priceInSol.toFixed(3)}
+                UNLOCK
               </button>
             </div>
           </>
@@ -127,32 +134,31 @@ export default function PaymentModal({
 
       case 'processing':
         return (
-          <div className="py-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-purple-100 dark:bg-purple-900/30 rounded-full mb-4">
-              <Loader2 className="w-8 h-8 text-purple-600 dark:text-purple-400 animate-spin" />
+          <div className="py-12 text-center flex flex-col items-center">
+            <div className="relative mb-6">
+               <div className="absolute inset-0 bg-neon-blue blur-xl opacity-20"></div>
+               <Loader2 className="w-16 h-16 text-neon-blue animate-spin relative z-10" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-              {BUTTONS.processing}
+            <h2 className="font-pixel text-2xl text-white mb-2 blink">
+              PROCESSING...
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
-              Please approve the transaction in your wallet...
+            <p className="font-mono text-xs text-zinc-500 uppercase tracking-widest">
+              WAITING FOR SIGNATURE
             </p>
           </div>
         );
 
       case 'success':
         return (
-          <div className="py-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full mb-4">
-              <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+          <div className="py-8 text-center flex flex-col items-center">
+            <div className="w-20 h-20 bg-neon-green/20 rounded-full border-2 border-neon-green flex items-center justify-center mb-6">
+              <CheckCircle className="w-10 h-10 text-neon-green" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-              {SUCCESS.contentUnlocked}
+            <h2 className="font-pixel text-2xl text-white mb-2">
+              ACCESS GRANTED
             </h2>
-            <p className="text-gray-600 dark:text-gray-400 text-sm mb-6">
-              {creatorUsername 
-                ? `Funds sent directly to @${creatorUsername}`
-                : 'Funds sent directly to creator'}
+            <p className="font-mono text-xs text-zinc-500 mb-8 max-w-xs mx-auto">
+              FUNDS TRANSFERRED. DECRYPTION KEY RECEIVED.
             </p>
             
             {txSignature && (
@@ -160,50 +166,50 @@ export default function PaymentModal({
                 href={`https://explorer.solana.com/tx/${txSignature}?cluster=devnet`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-blue-600 dark:text-blue-400 hover:underline mb-6"
+                className="retro-btn text-xs px-4 py-2 mb-6 inline-flex items-center gap-2"
               >
-                View transaction
-                <ExternalLink className="w-4 h-4" />
+                VIEW ON EXPLORER
+                <ExternalLink className="w-3 h-3" />
               </a>
             )}
 
             <button
               onClick={handleClose}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-green-600 to-emerald-600 text-white font-semibold hover:from-green-700 hover:to-emerald-700 transition-all"
+              className="retro-btn-primary w-full"
             >
-              Continue
+              OPEN CONTENT
             </button>
           </div>
         );
 
       case 'error':
         return (
-          <div className="py-8 text-center">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full mb-4">
-              <X className="w-8 h-8 text-red-600 dark:text-red-400" />
+          <div className="py-8 text-center flex flex-col items-center">
+            <div className="w-20 h-20 bg-neon-pink/20 rounded-full border-2 border-neon-pink flex items-center justify-center mb-6">
+              <X className="w-10 h-10 text-neon-pink" />
             </div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
-              Payment Failed
+            <h2 className="font-pixel text-2xl text-white mb-2">
+              TRANSACTION FAILED
             </h2>
-            <p className="text-red-600 dark:text-red-400 text-sm mb-6">
-              {error}
+            <p className="font-mono text-xs text-neon-pink mb-8 px-4 border border-neon-pink/30 py-2 bg-black">
+              ERROR: {error}
             </p>
 
-            <div className="flex gap-3">
+            <div className="flex gap-3 w-full">
               <button
                 onClick={handleClose}
-                className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700 transition-all"
+                className="retro-btn flex-1 bg-black border-zinc-700"
               >
-                {BUTTONS.cancel}
+                CLOSE
               </button>
               <button
                 onClick={() => {
                   setState('confirm');
                   setError(null);
                 }}
-                className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-purple-600 to-blue-600 text-white font-semibold hover:from-purple-700 hover:to-blue-700 transition-all"
+                className="retro-btn flex-1 border-neon-pink text-neon-pink hover:bg-neon-pink hover:text-black"
               >
-                {BUTTONS.tryAgain}
+                RETRY
               </button>
             </div>
           </div>
@@ -212,8 +218,8 @@ export default function PaymentModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-700/50 p-6 max-w-md w-full">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4">
+      <div className="w-full max-w-md bg-black border-2 border-zinc-700 shadow-[0_0_50px_rgba(88,101,242,0.15)] relative">
         {renderContent()}
       </div>
     </div>
