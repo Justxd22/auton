@@ -88,6 +88,13 @@ export async function POST(req: NextRequest) {
       throw new Error('Failed to get IPFS CID from Pinata.');
     }
 
+    // Check if public upload is requested
+    const isPublic = req.nextUrl.searchParams.get('public') === 'true';
+
+    if (isPublic) {
+      return NextResponse.json({ cid: ipfsCid });
+    }
+
     const encryptedCid = encryptCID(ipfsCid, encryptionKey);
 
     return NextResponse.json({ encryptedCid });
