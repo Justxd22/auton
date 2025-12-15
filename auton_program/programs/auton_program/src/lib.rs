@@ -243,7 +243,7 @@ pub struct RegisterUsername<'info> {
     // Seeds include the username, ensuring each username can only be claimed once.
     #[account(
         init,
-        payer = creator,
+        payer = payer,
         space = 8 + 32 + 4 + username.len(), // discriminator + pubkey + string length + username
         seeds = [b"username", username.as_bytes()],
         bump
@@ -253,6 +253,10 @@ pub struct RegisterUsername<'info> {
     // The creator claiming the username
     #[account(mut)]
     pub creator: Signer<'info>,
+
+    // The account paying for the rent. Can be the creator or a relayer.
+    #[account(mut)]
+    pub payer: Signer<'info>,
 
     pub system_program: Program<'info, System>,
 }
