@@ -581,6 +581,14 @@ export type AutonProgram = {
           {
             "name": "contentId",
             "type": "u64"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "createdAt",
+            "type": "i64"
           }
         ]
       }

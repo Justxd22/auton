@@ -575,6 +575,14 @@
           {
             "name": "content_id",
             "type": "u64"
+          },
+          {
+            "name": "creator",
+            "type": "pubkey"
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
           }
         ]
       }
