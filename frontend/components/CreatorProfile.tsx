@@ -182,191 +182,192 @@ export default function CreatorProfile({ onClose, onUpdate, initialProfile }: Cr
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white/95 dark:bg-gray-800/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/50 dark:border-gray-700/50 p-8 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-gradient-to-br from-purple-500 to-blue-600 rounded-xl">
-              <User className="w-6 h-6 text-white" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Edit Profile</h2>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+      <div className="w-full max-w-lg bg-black border-2 border-zinc-700 shadow-[0_0_40px_rgba(0,0,0,0.8)] relative">
+        
+        {/* Title Bar */}
+        <div className="bg-zinc-800 border-b-2 border-zinc-700 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-neon-blue" />
+            <span className="font-pixel text-white uppercase tracking-widest text-lg">SYSTEM.EDIT_PROFILE</span>
           </div>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+            className="hover:bg-neon-pink hover:text-black text-zinc-400 transition-colors p-1"
           >
-            <X className="w-5 h-5 text-gray-500" />
+            <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {/* Avatar URL */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              Profile Picture URL
-            </label>
-            <div className="flex items-center gap-4">
-              <div className="relative">
-                {avatarUrl ? (
-                  <img
-                    src={avatarUrl}
-                    alt="Avatar preview"
-                    className="w-16 h-16 rounded-full object-cover border-2 border-purple-200 dark:border-purple-700"
-                    onError={() => setAvatarUrl('')}
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-purple-500 to-blue-600 flex items-center justify-center">
-                    <Camera className="w-6 h-6 text-white" />
-                  </div>
-                )}
-              </div>
-              <input
-                type="url"
-                value={avatarUrl}
-                onChange={(e) => setAvatarUrl(e.target.value)}
-                placeholder="https://example.com/avatar.jpg"
-                className="flex-1 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2.5 text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all outline-none text-sm"
-              />
-            </div>
-          </div>
-
-          {/* Display Name */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              Display Name
-            </label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your Name"
-              maxLength={100}
-              className="w-full rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all outline-none"
-            />
-            <p className="mt-1 text-xs text-gray-500">{displayName.length}/100 characters</p>
-          </div>
-
-          {/* Bio */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
-              Bio
-            </label>
-            <textarea
-              value={bio}
-              onChange={(e) => setBio(e.target.value)}
-              placeholder="Tell your audience about yourself..."
-              rows={3}
-              maxLength={500}
-              className="w-full rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-3 text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 transition-all outline-none resize-none"
-            />
-            <p className="mt-1 text-xs text-gray-500">{bio.length}/500 characters</p>
-          </div>
-
-          {/* Social Links */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-              Social Links
-            </label>
+        {/* Content */}
+        <div className="p-8 bg-black bg-[radial-gradient(#222_1px,transparent_1px)] [background-size:16px_16px] max-h-[85vh] overflow-y-auto">
+          <form onSubmit={handleSubmit} className="space-y-6">
             
-            <div className="space-y-3">
-              {activeSocialInputs.map((platformKey) => {
-                const platform = SOCIAL_PLATFORMS.find(p => p.key === platformKey);
-                if (!platform) return null;
-                
-                return (
-                  <div key={platform.key} className="flex items-center gap-2">
-                    <div className="flex-shrink-0 w-24">
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        {platform.label}
-                      </span>
-                    </div>
-                    <input
-                      type="url"
-                      value={socialLinks[platform.key] || ''}
-                      onChange={(e) => setSocialLinks({ ...socialLinks, [platform.key]: e.target.value })}
-                      placeholder={platform.placeholder}
-                      className="flex-1 rounded-lg border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-3 py-2 text-gray-900 dark:text-white placeholder-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all outline-none text-sm"
+            {/* Avatar URL */}
+            <div>
+              <label className="block font-mono text-xs text-neon-blue mb-2 uppercase tracking-wider">
+                &gt; Profile_Picture_URL
+              </label>
+              <div className="flex items-center gap-4">
+                <div className="relative w-16 h-16 bg-zinc-900 border border-zinc-700 flex-shrink-0 flex items-center justify-center">
+                  {avatarUrl ? (
+                    <img
+                      src={avatarUrl}
+                      alt="Avatar preview"
+                      className="w-full h-full object-cover"
+                      onError={() => setAvatarUrl('')}
                     />
-                    <button
-                      type="button"
-                      onClick={() => removeSocialLink(platform.key)}
-                      className="p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                );
-              })}
+                  ) : (
+                    <Camera className="w-6 h-6 text-zinc-600" />
+                  )}
+                </div>
+                <input
+                  type="url"
+                  value={avatarUrl}
+                  onChange={(e) => setAvatarUrl(e.target.value)}
+                  placeholder="https://example.com/avatar.jpg"
+                  className="retro-input text-sm"
+                />
+              </div>
             </div>
 
-            {/* Add Social Link */}
-            {availablePlatforms.length > 0 && (
-              <div className="mt-3">
-                <div className="relative">
-                  <select
-                    onChange={(e) => {
-                      if (e.target.value) {
-                        addSocialLink(e.target.value);
-                        e.target.value = '';
-                      }
-                    }}
-                    className="w-full rounded-lg border-2 border-dashed border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 px-4 py-2.5 text-gray-600 dark:text-gray-400 cursor-pointer hover:border-blue-400 transition-colors outline-none appearance-none text-sm"
-                  >
-                    <option value="">+ Add social link...</option>
-                    {availablePlatforms.map((platform) => (
-                      <option key={platform.key} value={platform.key}>
-                        {platform.label}
-                      </option>
-                    ))}
-                  </select>
-                  <Plus className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+            {/* Display Name */}
+            <div>
+              <label className="block font-mono text-xs text-neon-blue mb-2 uppercase tracking-wider">
+                &gt; Display_Name
+              </label>
+              <input
+                type="text"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="YOUR NAME"
+                maxLength={100}
+                className="retro-input"
+              />
+              <p className="mt-1 text-[10px] font-mono text-zinc-600 text-right">{displayName.length}/100</p>
+            </div>
+
+            {/* Bio */}
+            <div>
+              <label className="block font-mono text-xs text-neon-blue mb-2 uppercase tracking-wider">
+                &gt; Bio
+              </label>
+              <textarea
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                placeholder="TELL YOUR STORY..."
+                rows={3}
+                maxLength={500}
+                className="retro-input resize-none"
+              />
+              <p className="mt-1 text-[10px] font-mono text-zinc-600 text-right">{bio.length}/500</p>
+            </div>
+
+            {/* Social Links */}
+            <div>
+              <label className="block font-mono text-xs text-neon-blue mb-3 uppercase tracking-wider">
+                &gt; Social_Connections
+              </label>
+              
+              <div className="space-y-3">
+                {activeSocialInputs.map((platformKey) => {
+                  const platform = SOCIAL_PLATFORMS.find(p => p.key === platformKey);
+                  if (!platform) return null;
+                  
+                  return (
+                    <div key={platform.key} className="flex items-center gap-2">
+                      <div className="flex-shrink-0 w-24">
+                        <span className="font-mono text-xs text-zinc-400 uppercase">
+                          {platform.label}:
+                        </span>
+                      </div>
+                      <input
+                        type="url"
+                        value={socialLinks[platform.key] || ''}
+                        onChange={(e) => setSocialLinks({ ...socialLinks, [platform.key]: e.target.value })}
+                        placeholder={platform.placeholder}
+                        className="retro-input text-sm py-2"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeSocialLink(platform.key)}
+                        className="p-2 text-neon-pink hover:bg-neon-pink hover:text-black border border-transparent hover:border-neon-pink transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Add Social Link */}
+              {availablePlatforms.length > 0 && (
+                <div className="mt-3">
+                  <div className="relative">
+                    <select
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          addSocialLink(e.target.value);
+                          e.target.value = '';
+                        }
+                      }}
+                      className="w-full bg-black border border-dashed border-zinc-700 px-4 py-2 text-zinc-500 font-mono text-xs uppercase cursor-pointer hover:border-neon-blue hover:text-neon-blue transition-colors outline-none appearance-none"
+                    >
+                      <option value="">+ ADD CONNECTION...</option>
+                      {availablePlatforms.map((platform) => (
+                        <option key={platform.key} value={platform.key}>
+                          {platform.label}
+                        </option>
+                      ))}
+                    </select>
+                    <Plus className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600 pointer-events-none" />
+                  </div>
                 </div>
+              )}
+            </div>
+
+            {/* Status Messages */}
+            {error && (
+              <div className="bg-neon-pink/10 border border-neon-pink p-3 text-neon-pink font-mono text-xs">
+                ERROR: {error}
               </div>
             )}
-          </div>
+            
+            {success && (
+              <div className="bg-neon-green/10 border border-neon-green p-3 text-neon-green font-mono text-xs">
+                SUCCESS: {success}
+              </div>
+            )}
 
-          {/* Error/Success Messages */}
-          {error && (
-            <div className="rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-4 py-3">
-              <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+            {/* Action Buttons */}
+            <div className="flex gap-4 pt-4 border-t border-zinc-800">
+              <button
+                type="button"
+                onClick={onClose}
+                className="retro-btn flex-1 bg-black border-zinc-700 text-zinc-400"
+              >
+                CANCEL
+              </button>
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="retro-btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    SAVING...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    SAVE PROFILE
+                  </>
+                )}
+              </button>
             </div>
-          )}
-          
-          {success && (
-            <div className="rounded-lg bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 px-4 py-3">
-              <p className="text-sm text-green-700 dark:text-green-300">{success}</p>
-            </div>
-          )}
-
-          {/* Action Buttons */}
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 py-3 px-4 rounded-xl border-2 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-100 dark:hover:bg-gray-700 transition-all"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="flex-1 py-3 px-4 rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 text-white font-semibold hover:from-blue-700 hover:to-purple-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  Save Profile
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+          </form>
+        </div>
       </div>
     </div>
   );
